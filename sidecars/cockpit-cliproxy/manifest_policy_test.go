@@ -2622,12 +2622,16 @@ func TestUsagePluginResolvesAPIKeyAndRequestKindFromCPARecord(t *testing.T) {
 }
 
 func TestUsagePluginForwardsServiceTierConfirmation(t *testing.T) {
-	for _, tc := range []struct{ requested, reported, wantRequested, wantReported string }{
-		{"auto", "priority", "auto", "priority"},
-		{"priority", "default", "priority", "default"},
-		{"fast", "", "priority", ""},
-		{"flex", "flex", "flex", "flex"},
-		{"", "", "", ""},
+	for _, tc := range []struct{ requested, outgoing, reported, wantRequested, wantReported string }{
+		{"auto", "", "priority", "auto", "priority"},
+		{"priority", "", "default", "priority", "default"},
+		{"fast", "", "", "priority", ""},
+		{"flex", "", "flex", "flex", "flex"},
+		{"", "", "", "", ""},
+		{"auto", "priority", "default", "priority", "default"},
+		{"auto", "priority", "priority", "priority", "priority"},
+		{"auto", "priority", "", "priority", ""},
+		{"priority", "auto", "default", "auto", "default"},
 	} {
 		t.Run(tc.requested+"/"+tc.reported, func(t *testing.T) {
 			tracker := newRequestUsageTracker()
@@ -2635,7 +2639,7 @@ func TestUsagePluginForwardsServiceTierConfirmation(t *testing.T) {
 			ctx := internallogging.WithRequestID(context.Background(), "req-tier")
 			plugin.HandleUsage(ctx, coreusage.Record{
 				Provider: "codex", Model: "gpt-6-astra",
-				ServiceTier: tc.requested, ResponseServiceTier: tc.reported,
+				ServiceTier: tc.requested, UpstreamServiceTier: tc.outgoing, ResponseServiceTier: tc.reported,
 				RequestedAt: time.UnixMilli(123),
 			})
 			payload, ok := tracker.finalize("req-tier", usageFinalizeInput{status: http.StatusOK})

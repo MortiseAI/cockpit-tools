@@ -22,26 +22,27 @@ import (
 )
 
 type UsageReporter struct {
-	provider        string
-	executorType    string
-	model           string
-	alias           string
-	authID          string
-	authIndex       string
-	authMu          sync.RWMutex
-	accessTokenHash string
-	authType        string
-	apiKey          string
-	source          string
-	reasoning       string
-	serviceTier     string
-	generate        bool
-	requestedAt     time.Time
-	ttftMu          sync.RWMutex
-	ttft            time.Duration
-	ttftStart       time.Time
-	ttftSet         bool
-	once            sync.Once
+	provider            string
+	executorType        string
+	model               string
+	alias               string
+	authID              string
+	authIndex           string
+	authMu              sync.RWMutex
+	accessTokenHash     string
+	authType            string
+	apiKey              string
+	source              string
+	reasoning           string
+	serviceTier         string
+	upstreamServiceTier string
+	generate            bool
+	requestedAt         time.Time
+	ttftMu              sync.RWMutex
+	ttft                time.Duration
+	ttftStart           time.Time
+	ttftSet             bool
+	once                sync.Once
 }
 
 type usageExecutor interface {
@@ -131,6 +132,18 @@ func (r *UsageReporter) SetTranslatedReasoningEffort(payload []byte, format stri
 		return
 	}
 	r.reasoning = thinking.ExtractTranslatedReasoningEffort(payload, format)
+}
+
+// SetUpstreamServiceTier captures the final outgoing tier without changing the
+// original client preference. Call after defaults and protocol transformations.
+func (r *UsageReporter) SetUpstreamServiceTier(payload []byte) {
+	if r == nil {
+		return
+	}
+	r.upstreamServiceTier = strings.TrimSpace(gjson.GetBytes(payload, "service_tier").String())
+	if r.upstreamServiceTier == "" {
+		r.upstreamServiceTier = usage.AutoServiceTier
+	}
 }
 
 func (r *UsageReporter) TrackHTTPClient(client *http.Client) *http.Client {
@@ -294,6 +307,7 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 		AuthType:            r.authType,
 		ReasoningEffort:     r.reasoning,
 		ServiceTier:         r.serviceTier,
+		UpstreamServiceTier: r.upstreamServiceTier,
 		ResponseServiceTier: strings.TrimSpace(detail.ResponseServiceTier),
 		Generate:            usage.GenerateFlag(r.generate),
 		RequestedAt:         r.requestedAt,

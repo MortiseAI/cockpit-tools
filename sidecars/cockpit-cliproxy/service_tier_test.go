@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,12 +18,37 @@ import (
 	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	coreusage "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/tidwall/gjson"
 )
 
+type fastTierUsageCaptureKey struct{}
+type fastTierUsageCapturePlugin struct{}
+
+func (fastTierUsageCapturePlugin) HandleUsage(ctx context.Context, record coreusage.Record) {
+	if records, ok := ctx.Value(fastTierUsageCaptureKey{}).(chan coreusage.Record); ok {
+		records <- record
+	}
+}
+
 func TestCodexFastServiceTierReachesUpstream(t *testing.T) {
+	// Runtime lifecycle tests stop the process-wide SDK usage dispatcher. Run
+	// this capture test in its own process so test ordering cannot lose events.
+	if os.Getenv("COCKPIT_TEST_FAST_TIER_CAPTURE") != "1" {
+		binary, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		command := exec.Command(binary, "-test.run=^TestCodexFastServiceTierReachesUpstream$")
+		command.Env = append(os.Environ(), "COCKPIT_TEST_FAST_TIER_CAPTURE=1")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("isolated tier capture: %v\n%s", err, output)
+		}
+		return
+	}
+	coreusage.RegisterNamedPlugin("cockpit-fast-tier-test", fastTierUsageCapturePlugin{})
 	for _, format := range []sdktranslator.Format{sdktranslator.FormatOpenAI, sdktranslator.FormatOpenAIResponse} {
 		for _, stream := range []bool{false, true} {
 			for _, tc := range []struct {
@@ -39,7 +65,7 @@ func TestCodexFastServiceTierReachesUpstream(t *testing.T) {
 						body, _ := io.ReadAll(r.Body)
 						captured <- body
 						w.Header().Set("Content-Type", "text/event-stream")
-						fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-6-astra\",\"status\":\"completed\",\"service_tier\":\"priority\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")
+						fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-6-astra\",\"status\":\"completed\",\"service_tier\":\"default\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")
 					}))
 					defer upstream.Close()
 					configJSON := `{}`
@@ -69,6 +95,10 @@ func TestCodexFastServiceTierReachesUpstream(t *testing.T) {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
 					request, options := buildExecutorRequest(nil, []byte(payload), "gpt-6-astra", format, "", stream)
+					records := make(chan coreusage.Record, 4)
+					ctx = context.WithValue(ctx, fastTierUsageCaptureKey{}, records)
+					clientTier := options.Metadata[cliproxyexecutor.ServiceTierMetadataKey].(string)
+					ctx = coreusage.WithServiceTier(ctx, clientTier)
 					if stream {
 						result, err := executor.ExecuteStream(ctx, auth, request, options)
 						if err != nil {
@@ -87,6 +117,14 @@ func TestCodexFastServiceTierReachesUpstream(t *testing.T) {
 					body := <-captured
 					if got := gjson.GetBytes(body, "service_tier").String(); got != "priority" {
 						t.Fatalf("upstream service_tier = %q, want priority; body=%s", got, body)
+					}
+					select {
+					case record := <-records:
+						if record.ServiceTier != clientTier || record.UpstreamServiceTier != "priority" || record.ResponseServiceTier != "default" {
+							t.Fatalf("tier evidence: client=%q outgoing=%q response=%q", record.ServiceTier, record.UpstreamServiceTier, record.ResponseServiceTier)
+						}
+					case <-ctx.Done():
+						t.Fatal("missing usage record")
 					}
 				})
 			}

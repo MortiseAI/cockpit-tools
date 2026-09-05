@@ -668,6 +668,24 @@ func TestUsageReporterSetTranslatedReasoningEffortPreservesClientServiceTier(t *
 	}
 }
 
+func TestUsageReporterSeparatesClientOutgoingAndResponseServiceTiers(t *testing.T) {
+	for _, tc := range []struct{ body, want string }{
+		{`{"service_tier":"priority"}`, "priority"},
+		{`{"service_tier":"default"}`, "default"},
+		{`{}`, "auto"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			ctx := usage.WithServiceTier(context.Background(), "auto")
+			reporter := NewUsageReporter(ctx, "codex", "gpt-6-astra", nil)
+			reporter.SetUpstreamServiceTier([]byte(tc.body))
+			record := reporter.buildRecord(usage.Detail{TotalTokens: 3, ResponseServiceTier: "default"}, false)
+			if record.ServiceTier != "auto" || record.UpstreamServiceTier != tc.want || record.ResponseServiceTier != "default" {
+				t.Fatalf("client=%q outgoing=%q response=%q", record.ServiceTier, record.UpstreamServiceTier, record.ResponseServiceTier)
+			}
+		})
+	}
+}
+
 func TestUsageReporterBuildAdditionalModelRecordSkipsZeroTokens(t *testing.T) {
 	reporter := &UsageReporter{
 		provider:    "codex",

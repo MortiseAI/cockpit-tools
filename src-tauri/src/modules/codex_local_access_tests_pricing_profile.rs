@@ -1218,6 +1218,54 @@
     }
 
     #[test]
+    fn pricing_uses_confirmed_tier_before_requested_fast() {
+        assert_eq!(
+            super::service_tier_for_pricing(Some("priority"), Some("default")),
+            Some("standard")
+        );
+        assert_eq!(
+            super::service_tier_for_pricing(Some("auto"), Some("priority")),
+            Some("priority")
+        );
+        assert_eq!(
+            super::service_tier_for_pricing(Some("priority"), None),
+            Some("priority")
+        );
+        assert_eq!(
+            super::service_tier_for_pricing(Some("priority"), Some("auto")),
+            Some("priority")
+        );
+        assert_eq!(super::service_tier_for_pricing(None, None), None);
+    }
+
+    #[test]
+    fn reprice_preserves_confirmed_standard_and_legacy_tier_fallback() {
+        let conn = Connection::open_in_memory().expect("open db");
+        super::create_request_logs_table(&conn, true).expect("create logs");
+        for (key, reported) in [("confirmed", "default"), ("legacy", ""), ("auto", "auto")] {
+            conn.execute(
+                "INSERT INTO request_logs (event_key, timestamp, model_id, service_tier, response_service_tier, input_tokens, total_tokens)
+                 VALUES (?1, 1, 'gpt-6-astra', 'priority', ?2, 1000, 1000)",
+                [key, reported],
+            ).expect("insert tier evidence");
+        }
+        let mut cursors = HashMap::from([("gpt-6-astra".to_string(), 0_i64)]);
+        let rows = read_request_log_reprice_batch(&conn, &mut cursors, 10, None).expect("read prices");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].service_tier, "default");
+        assert_eq!(rows[1].service_tier, "priority");
+        assert_eq!(rows[2].service_tier, "priority");
+        let updated = super::compute_request_log_reprice_row(None, &rows[0]).expect("reprice");
+        let standard = resolve_effective_model_pricing(
+            None, Some("gpt-6-astra"), Some(&rows[0].usage), Some("standard"),
+        ).expect("standard pricing");
+        assert_eq!(
+            updated.estimated_cost_usd,
+            calculate_usage_cost_usd(Some(&rows[0].usage), Some(&standard))
+        );
+    }
+
+    #[test]
     fn calculates_usage_cost_for_long_context_session() {
         // gpt-5.4 long-context session multipliers
         let usage = UsageCapture {

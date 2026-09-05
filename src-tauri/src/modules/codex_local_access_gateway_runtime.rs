@@ -749,7 +749,7 @@ async fn record_request_stats_with_meta(
             runtime.collection.as_ref(),
             model_id,
             usage_ref,
-            meta.service_tier,
+            service_tier_for_pricing(meta.service_tier, meta.response_service_tier),
         );
         let model_pricing_version = runtime
             .collection

@@ -941,7 +941,12 @@ fn read_request_log_reprice_batch(
     }
     let has_service_tier_column = request_logs_has_service_tier_column(conn)
         .map_err(|e| format!("检查 API 服务日志 service_tier 列失败: {}", e))?;
-    let service_tier_select = if has_service_tier_column {
+    let has_response_service_tier_column = request_logs_has_column(conn, "response_service_tier")
+        .map_err(|e| format!("检查 API 服务日志 response_service_tier 列失败: {}", e))?;
+    let service_tier_select = if has_service_tier_column && has_response_service_tier_column {
+        "CASE WHEN LOWER(TRIM(response_service_tier)) IN ('priority', 'fast', 'standard', 'default', 'flex')
+         THEN response_service_tier ELSE service_tier END AS service_tier"
+    } else if has_service_tier_column {
         "service_tier"
     } else {
         "'' AS service_tier"

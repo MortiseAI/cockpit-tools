@@ -1355,6 +1355,15 @@ fn parse_billing_service_tier(service_tier: Option<&str>) -> CodexBillingService
     }
 }
 
+fn service_tier_for_pricing<'a>(
+    requested: Option<&'a str>,
+    reported: Option<&str>,
+) -> Option<&'a str> {
+    // A confirmed processing tier takes precedence over the requested speed.
+    // Missing, auto and unrecognized response tiers retain the existing estimate.
+    reported.and_then(normalize_proxy_service_tier).or(requested)
+}
+
 fn is_openai_session_long_context_model(model_id: &str) -> bool {
     let normalized = normalize_known_openai_codex_model(model_id)
         .unwrap_or_else(|| model_id.trim().to_ascii_lowercase());

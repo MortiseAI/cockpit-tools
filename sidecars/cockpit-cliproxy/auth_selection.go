@@ -1363,6 +1363,12 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 	}
 	status := record.Fail.StatusCode
 	success := !record.Failed
+	// Cockpit logs describe the request sent upstream, including the API
+	// service's Fast default. The SDK retains the original client preference.
+	serviceTier := record.UpstreamServiceTier
+	if strings.TrimSpace(serviceTier) == "" {
+		serviceTier = record.ServiceTier
+	}
 	p.tracker.record(usagePayload{
 		Type:                "usage",
 		RequestID:           internallogging.GetRequestID(ctx),
@@ -1376,7 +1382,7 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 		APIKeyLabel:         stringFromAPIKey(spec, "label"),
 		ClientInstanceID:    clientInstanceIDFromContext(ctx),
 		RequestKind:         requestKind,
-		ServiceTier:         normalizedUsageServiceTier(record.ServiceTier),
+		ServiceTier:         normalizedUsageServiceTier(serviceTier),
 		ResponseServiceTier: normalizedUsageServiceTier(record.ResponseServiceTier),
 		ReasoningEffort:     strings.TrimSpace(record.ReasoningEffort),
 		Success:             success,

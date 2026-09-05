@@ -36,6 +36,9 @@ type Record struct {
 	ReasoningEffort string
 	// ServiceTier stores the client-requested service tier.
 	ServiceTier string
+	// UpstreamServiceTier stores the tier in the outgoing request after payload
+	// defaults and protocol conversion. Empty means it was not captured.
+	UpstreamServiceTier string
 	// RequestServiceTier is a deprecated input-only alias retained for existing
 	// plugin callers. It is normalized into ServiceTier and never emitted.
 	RequestServiceTier string
