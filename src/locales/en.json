@@ -2578,6 +2578,13 @@
       "cardHint": "Notes saved. Finish OAuth to use this account."
     },
     "localAccess": {
+      "launchModeLabel": "Launch mode",
+      "globalProxyMode": "Global proxy",
+      "serverOnlyMode": "Start API service only",
+      "globalProxyModeHint": "Start the API service and route local Codex App and CLI requests through it.",
+      "serverOnlyModeHint": "Start only the API service. Local Codex uses its own configuration; any active global proxy is removed.",
+      "globalProxyEnabled": "Global proxy is enabled. Local Codex is connected to the API service.",
+      "serverOnlyEnabled": "API service is enabled. Local Codex uses its own configuration.",
       "title": "API Service",
       "entryAction": "Add to API Service",
       "removeAction": "Remove from API",
@@ -4320,7 +4327,16 @@
         "reasoningEffort": "Reasoning",
         "reasoningEffortValue": "Think {{effort}}",
         "serviceTier": "Service tier",
-        "serviceTierValue": "Tier {{tier}}"
+        "serviceTierValue": "Tier {{tier}}",
+        "speedStandard": "Standard",
+        "speedAuto": "Auto",
+        "speedUnknown": "Speed unknown",
+        "speedConfirmed": "{{mode}} · confirmed",
+        "speedRequested": "{{mode}} · requested",
+        "speedNotRecorded": "Not recorded",
+        "speedFastNotHonored": "Fast requested → {{mode}}",
+        "speedDetails": "Requested: {{requested}}; upstream reported: {{reported}}",
+        "speedUnconfirmed": "The actual processing tier has not been confirmed by the upstream response."
       }
     },
     "apiKey": {

@@ -8,15 +8,6 @@ pub enum GrokAuthMode {
     ApiKey,
 }
 
-impl GrokAuthMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Oauth => "oauth",
-            Self::ApiKey => "api_key",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GrokProductUsage {

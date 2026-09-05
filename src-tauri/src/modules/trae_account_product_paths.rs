@@ -28,10 +28,6 @@ pub fn get_default_trae_data_dir_for_platform(
     Err("Trae 仅支持 macOS、Windows 和 Linux".to_string())
 }
 
-pub fn get_default_trae_data_dir() -> Result<PathBuf, String> {
-    get_default_trae_data_dir_for_platform(TraePlatformKind::Trae)
-}
-
 pub fn get_default_trae_storage_path_for_platform(
     platform: TraePlatformKind,
 ) -> Result<PathBuf, String> {
@@ -39,10 +35,6 @@ pub fn get_default_trae_storage_path_for_platform(
         .join("User")
         .join("globalStorage")
         .join("storage.json"))
-}
-
-pub fn get_default_trae_storage_path() -> Result<PathBuf, String> {
-    get_default_trae_storage_path_for_platform(TraePlatformKind::Trae)
 }
 
 fn read_storage_json(path: &Path) -> Result<Value, String> {

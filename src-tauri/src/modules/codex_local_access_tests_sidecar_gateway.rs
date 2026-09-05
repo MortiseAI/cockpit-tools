@@ -378,6 +378,7 @@
                 CodexLocalAccessRequestKind::Text,
                 None,
                 None,
+                None,
                 true,
                 Some(200),
                 None,
@@ -796,6 +797,7 @@
     fn test_local_access_collection(account_ids: Vec<String>) -> CodexLocalAccessCollection {
         CodexLocalAccessCollection {
             enabled: true,
+            launch_mode: Default::default(),
             port: 14998,
             api_key: "local-api-key".to_string(),
             api_keys: Vec::new(),

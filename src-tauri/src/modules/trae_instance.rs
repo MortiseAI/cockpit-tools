@@ -59,28 +59,11 @@ pub fn save_instance_store_for_platform(
     instance_store::save_instance_store(&path, instances_file_for_platform(platform), store)
 }
 
-pub fn load_default_settings() -> Result<DefaultInstanceSettings, String> {
-    load_default_settings_for_platform(crate::modules::trae_account::TraePlatformKind::Trae)
-}
-
 pub fn load_default_settings_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
 ) -> Result<DefaultInstanceSettings, String> {
     let store = load_instance_store_for_platform(platform)?;
     Ok(store.default_settings)
-}
-
-pub fn update_default_settings(
-    bind_account_id: Option<Option<String>>,
-    extra_args: Option<String>,
-    follow_local_account: Option<bool>,
-) -> Result<DefaultInstanceSettings, String> {
-    update_default_settings_for_platform(
-        crate::modules::trae_account::TraePlatformKind::Trae,
-        bind_account_id,
-        extra_args,
-        follow_local_account,
-    )
 }
 
 pub fn update_default_settings_for_platform(
@@ -114,22 +97,10 @@ pub fn update_default_settings_for_platform(
     Ok(updated)
 }
 
-pub fn get_default_trae_user_data_dir() -> Result<PathBuf, String> {
-    get_default_trae_user_data_dir_for_platform(
-        crate::modules::trae_account::TraePlatformKind::Trae,
-    )
-}
-
 pub fn get_default_trae_user_data_dir_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
 ) -> Result<PathBuf, String> {
     crate::modules::trae_account::get_default_trae_data_dir_for_platform(platform)
-}
-
-pub fn get_default_instances_root_dir() -> Result<PathBuf, String> {
-    get_default_instances_root_dir_for_platform(
-        crate::modules::trae_account::TraePlatformKind::Trae,
-    )
 }
 
 pub fn get_default_instances_root_dir_for_platform(
@@ -167,10 +138,6 @@ pub fn get_default_instances_root_dir_for_platform(
     Err("Trae 应用多开仅支持 macOS、Windows 和 Linux".to_string())
 }
 
-pub fn get_instance_defaults() -> Result<InstanceDefaults, String> {
-    get_instance_defaults_for_platform(crate::modules::trae_account::TraePlatformKind::Trae)
-}
-
 pub fn get_instance_defaults_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
 ) -> Result<InstanceDefaults, String> {
@@ -180,10 +147,6 @@ pub fn get_instance_defaults_for_platform(
         root_dir: root_dir.to_string_lossy().to_string(),
         default_user_data_dir: default_user_data_dir.to_string_lossy().to_string(),
     })
-}
-
-pub fn create_instance(params: CreateInstanceParams) -> Result<InstanceProfile, String> {
-    create_instance_for_platform(crate::modules::trae_account::TraePlatformKind::Trae, params)
 }
 
 pub fn create_instance_for_platform(
@@ -291,10 +254,6 @@ pub fn create_instance_for_platform(
     Ok(instance)
 }
 
-pub fn update_instance(params: UpdateInstanceParams) -> Result<InstanceProfile, String> {
-    update_instance_for_platform(crate::modules::trae_account::TraePlatformKind::Trae, params)
-}
-
 pub fn update_instance_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
     params: UpdateInstanceParams,
@@ -337,13 +296,6 @@ pub fn update_instance_for_platform(
     Ok(updated)
 }
 
-pub fn delete_instance(instance_id: &str) -> Result<(), String> {
-    delete_instance_for_platform(
-        crate::modules::trae_account::TraePlatformKind::Trae,
-        instance_id,
-    )
-}
-
 pub fn delete_instance_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
     instance_id: &str,
@@ -369,14 +321,6 @@ pub fn delete_instance_for_platform(
     Ok(())
 }
 
-pub fn update_instance_after_start(instance_id: &str, pid: u32) -> Result<InstanceProfile, String> {
-    update_instance_after_start_for_platform(
-        crate::modules::trae_account::TraePlatformKind::Trae,
-        instance_id,
-        pid,
-    )
-}
-
 pub fn update_instance_after_start_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
     instance_id: &str,
@@ -398,14 +342,6 @@ pub fn update_instance_after_start_for_platform(
     let updated = updated.ok_or("实例不存在")?;
     save_instance_store_for_platform(platform, &store)?;
     Ok(updated)
-}
-
-pub fn update_instance_pid(instance_id: &str, pid: Option<u32>) -> Result<InstanceProfile, String> {
-    update_instance_pid_for_platform(
-        crate::modules::trae_account::TraePlatformKind::Trae,
-        instance_id,
-        pid,
-    )
 }
 
 pub fn update_instance_pid_for_platform(
@@ -430,10 +366,6 @@ pub fn update_instance_pid_for_platform(
     Ok(updated)
 }
 
-pub fn update_default_pid(pid: Option<u32>) -> Result<DefaultInstanceSettings, String> {
-    update_default_pid_for_platform(crate::modules::trae_account::TraePlatformKind::Trae, pid)
-}
-
 pub fn update_default_pid_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
     pid: Option<u32>,
@@ -446,10 +378,6 @@ pub fn update_default_pid_for_platform(
     let updated = store.default_settings.clone();
     save_instance_store_for_platform(platform, &store)?;
     Ok(updated)
-}
-
-pub fn clear_all_pids() -> Result<(), String> {
-    clear_all_pids_for_platform(crate::modules::trae_account::TraePlatformKind::Trae)
 }
 
 pub fn clear_all_pids_for_platform(

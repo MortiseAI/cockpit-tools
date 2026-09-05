@@ -114,7 +114,6 @@ fn sqlite_candidate_paths_for_options(
     options: CodexSessionVisibilityRepairOptions,
 ) -> Vec<PathBuf> {
     match options.sqlite_scope {
-        SqliteRepairScope::LegacyStateOnly => vec![data_dir.join(STATE_DB_FILE)],
         SqliteRepairScope::OfficialStateDbs => official_state_db_candidate_paths(data_dir),
         SqliteRepairScope::AllSessionDbs => provider_sync_sqlite_paths(data_dir),
     }

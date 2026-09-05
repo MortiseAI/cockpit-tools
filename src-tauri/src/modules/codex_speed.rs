@@ -321,11 +321,6 @@ pub fn save_api_service_app_speed(speed: CodexAppSpeed) -> Result<CodexAppSpeedC
     write_official_app_speed(speed)
 }
 
-pub fn apply_api_service_speed_to_official_state() -> Result<CodexAppSpeedConfig, String> {
-    let speed = read_preferred_speed()?.unwrap_or_default();
-    write_official_app_speed(speed)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{

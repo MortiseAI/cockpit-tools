@@ -615,13 +615,6 @@ impl TrayIconStyle {
             TrayIconStyle::Color => "color",
         }
     }
-
-    pub fn from_str(value: &str) -> Self {
-        match value {
-            "color" => TrayIconStyle::Color,
-            _ => TrayIconStyle::Template,
-        }
-    }
 }
 
 impl Default for TrayIconStyle {
@@ -2404,27 +2397,6 @@ where
         finish_user_config_update,
         patch,
     )
-}
-
-/// 保存完整用户配置。
-pub fn save_user_config(config: &UserConfig) -> Result<(), String> {
-    let replacement = config.clone();
-    patch_runtime_state(
-        get_runtime_state(),
-        |cached| {
-            let lock_path = get_data_dir()?.join(USER_CONFIG_LOCK_FILE);
-            let guard = acquire_config_file_lock(&lock_path)?;
-            Ok((cached.clone(), guard))
-        },
-        persist_user_config,
-        finish_user_config_update,
-        move |current| {
-            *current = replacement;
-            Ok(())
-        },
-    )?;
-
-    Ok(())
 }
 
 /// 获取用户配置（从内存）

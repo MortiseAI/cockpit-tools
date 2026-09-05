@@ -641,10 +641,6 @@ pub fn add_account(
     Ok(account)
 }
 
-pub fn is_pending_oauth_account(account: &Account) -> bool {
-    account.pending_oauth
-}
-
 pub fn create_pending_oauth_account(
     email: String,
     update: AccountNoteUpdate,

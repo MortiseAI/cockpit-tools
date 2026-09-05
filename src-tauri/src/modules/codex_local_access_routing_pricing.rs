@@ -1859,6 +1859,7 @@ fn calculate_usage_cost_usd_from_tokens(
     }
 }
 
+#[cfg(test)]
 fn trim_recent_events(events: &mut Vec<CodexLocalAccessUsageEvent>, retention_since: i64) {
     events.retain(|event| event.timestamp > 0 && event.timestamp >= retention_since);
     events.sort_by_key(|event| event.timestamp);

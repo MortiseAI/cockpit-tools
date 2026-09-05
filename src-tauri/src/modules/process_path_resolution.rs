@@ -1606,10 +1606,6 @@ fn detect_zed_exec_path() -> Option<std::path::PathBuf> {
     None
 }
 
-fn detect_trae_exec_path() -> Option<std::path::PathBuf> {
-    detect_trae_exec_path_for_platform(crate::modules::trae_account::TraePlatformKind::Trae)
-}
-
 fn detect_trae_exec_path_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
 ) -> Option<std::path::PathBuf> {
@@ -2510,8 +2506,10 @@ Start-Process -FilePath $exe{argument_list} -ErrorAction Stop | Out-Null"#,
     Ok(())
 }
 
+#[cfg(any(test, target_os = "windows"))]
 const CODEX_MANAGED_STORE_LAUNCH_UNSAFE_PREFIX: &str = "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:";
 
+#[cfg(any(test, target_os = "windows"))]
 fn codex_managed_store_launch_unsafe_error(direct_error: &str, powershell_error: &str) -> String {
     format!(
         "{}direct_error={}; powershell_error={}",
@@ -2909,10 +2907,6 @@ pub fn ensure_qoder_launch_path_configured() -> Result<(), String> {
     resolve_qoder_launch_path().map(|_| ())
 }
 
-pub fn ensure_trae_launch_path_configured() -> Result<(), String> {
-    resolve_trae_launch_path().map(|_| ())
-}
-
 pub fn ensure_workbuddy_launch_path_configured() -> Result<(), String> {
     resolve_workbuddy_launch_path().map(|_| ())
 }
@@ -3065,10 +3059,6 @@ pub fn resolve_zed_launch_path() -> Result<std::path::PathBuf, String> {
     }
 
     Err(app_path_missing_error("zed"))
-}
-
-fn resolve_trae_launch_path() -> Result<std::path::PathBuf, String> {
-    resolve_trae_launch_path_for_platform(crate::modules::trae_account::TraePlatformKind::Trae)
 }
 
 fn trae_configured_app_path(

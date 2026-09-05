@@ -29,6 +29,7 @@ import {
 import { useCodexAccountStore } from "../../stores/useCodexAccountStore";
 import { useCodexInstanceStore } from "../../stores/useCodexInstanceStore";
 import type { CodexInstanceApiRoute } from "../../types/instance";
+import type { CodexLocalAccessLaunchMode } from "../../types/codexLocalAccess";
 import {
   CodexModelRoutingFields,
   buildCodexModelRoutingValue,
@@ -120,8 +121,12 @@ interface CodexLaunchPreviewModalProps {
   instanceOptions?: SingleSelectOption[];
   onInstanceChange?: (instanceId: string) => void | Promise<void>;
   mode?: "account" | "instance" | "apiService";
+  initialApiServiceLaunchMode?: CodexLocalAccessLaunchMode;
   onClose: () => void;
-  onExecute: (launchAfterSwitch: boolean) => Promise<boolean>;
+  onExecute: (
+    launchAfterSwitch: boolean,
+    launchMode?: CodexLocalAccessLaunchMode,
+  ) => Promise<boolean>;
 }
 
 interface ModelConfigSnapshot {
@@ -141,10 +146,14 @@ export function CodexLaunchPreviewModal({
   instanceOptions,
   onInstanceChange,
   mode = "account",
+  initialApiServiceLaunchMode = "serverOnly",
   onClose,
   onExecute,
 }: CodexLaunchPreviewModalProps) {
   const { t, i18n } = useTranslation();
+  const [apiServiceLaunchMode, setApiServiceLaunchMode] = useState(
+    initialApiServiceLaunchMode,
+  );
   const [loadedConfig, setLoadedConfig] = useState<CodexQuickConfig | null>(
     null,
   );
@@ -186,7 +195,7 @@ export function CodexLaunchPreviewModal({
     [instanceId, instances],
   );
   const serverOnlyMode =
-    mode === "apiService" && instanceId === DEFAULT_CODEX_INSTANCE_ID;
+    mode === "apiService" && apiServiceLaunchMode === "serverOnly";
   const resolveModelSource = useMemo(
     () =>
       createCodexModelSourceResolver(
@@ -524,14 +533,17 @@ export function CodexLaunchPreviewModal({
       setNotice(null);
       setError(null);
       try {
-        const started = await onExecute(launchAfterSwitch);
+        const started = await onExecute(
+          launchAfterSwitch,
+          mode === "apiService" ? apiServiceLaunchMode : undefined,
+        );
         if (!started) setExecuting(null);
       } catch (executeError) {
         setError(String(executeError).replace(/^Error:\s*/, ""));
         setExecuting(null);
       }
     },
-    [busy, onExecute, persistDraft, setError],
+    [apiServiceLaunchMode, busy, mode, onExecute, persistDraft, setError],
   );
 
   const unavailable =
@@ -945,18 +957,36 @@ export function CodexLaunchPreviewModal({
                 <div className="codex-launch-preview-summary-controls">
                   <div
                     className={`codex-launch-preview-target${
-                      instanceOptions?.length && onInstanceChange
+                      mode === "apiService" || (instanceOptions?.length && onInstanceChange)
                         ? " is-switchable"
                         : ""
                     }`}
                   >
                     <span>
-                      {t(
-                        "codex.sessionManager.repairModal.targetInstance",
-                        "目标实例",
-                      )}
+                      {mode === "apiService"
+                        ? t("codex.localAccess.launchModeLabel", "启动模式")
+                        : t("codex.sessionManager.repairModal.targetInstance", "目标实例")}
                     </span>
-                    {instanceOptions?.length && onInstanceChange ? (
+                    {mode === "apiService" ? (
+                      <SingleSelectDropdown
+                        value={apiServiceLaunchMode}
+                        options={[
+                          { value: "globalProxy", label: t("codex.localAccess.globalProxyMode", "全局代理") },
+                          { value: "serverOnly", label: t("codex.localAccess.serverOnlyMode", "仅启动 API 服务") },
+                        ]}
+                        onChange={(value) => {
+                          if (value === "globalProxy" || value === "serverOnly") {
+                            setApiServiceLaunchMode(value);
+                            setError(null);
+                          }
+                        }}
+                        className="codex-launch-preview-instance-select"
+                        menuClassName="codex-launch-preview-instance-menu"
+                        disabled={busy}
+                        ariaLabel={t("codex.localAccess.launchModeLabel", "启动模式")}
+                        menuWidth={260}
+                      />
+                    ) : instanceOptions?.length && onInstanceChange ? (
                       <SingleSelectDropdown
                         value={instanceId}
                         options={instanceOptions}
@@ -993,6 +1023,14 @@ export function CodexLaunchPreviewModal({
                   )}
                 </div>
               </div>
+
+              {mode === "apiService" && (
+                <p className="codex-launch-preview-mode-hint">
+                  {serverOnlyMode
+                    ? t("codex.localAccess.serverOnlyModeHint", "仅启动 API 服务，不代理本地 Codex；已启用的全局代理会被解除。")
+                    : t("codex.localAccess.globalProxyModeHint", "启动 API 服务，并代理本地 Codex App 和 CLI 的请求。")}
+                </p>
+              )}
 
               {displayFacts.length > 0 && (
                 <div className="codex-launch-preview-facts">

@@ -386,27 +386,28 @@ type customRoutingRule struct {
 }
 
 type usagePayload struct {
-	Type             string       `json:"type"`
-	RequestID        string       `json:"requestId,omitempty"`
-	Provider         string       `json:"provider,omitempty"`
-	Model            string       `json:"model,omitempty"`
-	Alias            string       `json:"alias,omitempty"`
-	AccountID        string       `json:"accountId,omitempty"`
-	AccountEmail     string       `json:"accountEmail,omitempty"`
-	AuthID           string       `json:"authId,omitempty"`
-	APIKeyID         string       `json:"apiKeyId,omitempty"`
-	APIKeyLabel      string       `json:"apiKeyLabel,omitempty"`
-	ClientInstanceID string       `json:"clientInstanceId,omitempty"`
-	RequestKind      string       `json:"requestKind,omitempty"`
-	ServiceTier      string       `json:"serviceTier,omitempty"`
-	ReasoningEffort  string       `json:"reasoningEffort,omitempty"`
-	Success          bool         `json:"success"`
-	Status           int          `json:"status,omitempty"`
-	ErrorCategory    string       `json:"errorCategory,omitempty"`
-	ErrorMessage     string       `json:"errorMessage,omitempty"`
-	LatencyMS        int64        `json:"latencyMs,omitempty"`
-	Usage            usageDetails `json:"usage"`
-	RequestedAtMS    int64        `json:"requestedAtMs,omitempty"`
+	Type                string       `json:"type"`
+	RequestID           string       `json:"requestId,omitempty"`
+	Provider            string       `json:"provider,omitempty"`
+	Model               string       `json:"model,omitempty"`
+	Alias               string       `json:"alias,omitempty"`
+	AccountID           string       `json:"accountId,omitempty"`
+	AccountEmail        string       `json:"accountEmail,omitempty"`
+	AuthID              string       `json:"authId,omitempty"`
+	APIKeyID            string       `json:"apiKeyId,omitempty"`
+	APIKeyLabel         string       `json:"apiKeyLabel,omitempty"`
+	ClientInstanceID    string       `json:"clientInstanceId,omitempty"`
+	RequestKind         string       `json:"requestKind,omitempty"`
+	ServiceTier         string       `json:"serviceTier,omitempty"`
+	ResponseServiceTier string       `json:"responseServiceTier,omitempty"`
+	ReasoningEffort     string       `json:"reasoningEffort,omitempty"`
+	Success             bool         `json:"success"`
+	Status              int          `json:"status,omitempty"`
+	ErrorCategory       string       `json:"errorCategory,omitempty"`
+	ErrorMessage        string       `json:"errorMessage,omitempty"`
+	LatencyMS           int64        `json:"latencyMs,omitempty"`
+	Usage               usageDetails `json:"usage"`
+	RequestedAtMS       int64        `json:"requestedAtMs,omitempty"`
 }
 
 type requestDiagnosticPayload struct {
@@ -648,13 +649,14 @@ func (t *requestUsageTracker) recordSelectedAccount(requestID string, account *a
 }
 
 func normalizedUsageServiceTier(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "priority":
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "fast":
 		return "priority"
-	case "", "default", "standard":
-		return ""
+	case "standard":
+		return "default"
 	default:
-		return ""
+		return value
 	}
 }
 

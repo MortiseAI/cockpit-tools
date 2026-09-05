@@ -13,7 +13,6 @@ use sysinfo::{Pid, ProcessRefreshKind, System, UpdateKind};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 const OPENCODE_APP_NAME: &str = "OpenCode";
 #[cfg(target_os = "macos")]
-const TRAE_APP_NAME: &str = "Trae";
 #[cfg(target_os = "macos")]
 const CODEX_APP_PATH: &str = "/Applications/Codex.app/Contents/MacOS/Codex";
 #[cfg(target_os = "macos")]

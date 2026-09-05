@@ -6,7 +6,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessAccountModelRule, CodexLocalAccessAccountWindowQuery,
     CodexLocalAccessAccountWindowStats, CodexLocalAccessAppendAccountsResult,
     CodexLocalAccessChatMessage, CodexLocalAccessChatResult, CodexLocalAccessClientBaseUrlHost,
-    CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode,
+    CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode, CodexLocalAccessLaunchMode,
     CodexLocalAccessImageGenerationPolicy, CodexLocalAccessModelAlias,
     CodexLocalAccessModelPricing, CodexLocalAccessPortCleanupResult, CodexLocalAccessQuotaReserve,
     CodexLocalAccessRequestKind, CodexLocalAccessRoutingStrategy, CodexLocalAccessScope,

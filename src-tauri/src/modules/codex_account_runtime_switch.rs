@@ -388,76 +388,6 @@ pub async fn keepalive_managed_account(
     perform_managed_token_refresh(account, reason, false).await
 }
 
-pub async fn execute_with_managed_account_projection<R, F>(
-    account_id: &str,
-    auth_dir: &Path,
-    reason: &str,
-    operation: F,
-) -> Result<(CodexAccount, R, Option<String>), String>
-where
-    F: FnOnce(&CodexAccount) -> R,
-{
-    let api_key_account =
-        load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
-    if api_key_account.is_api_key_auth() {
-        let sync_error = if normalize_optional_ref(
-            api_key_account.bound_oauth_account_id.as_deref(),
-        )
-        .is_some()
-        {
-            let oauth_account =
-                refresh_bound_oauth_account_for_api_key(&api_key_account, reason, false, false)
-                    .await?;
-            write_api_key_account_bundle_with_oauth_to_dir(
-                auth_dir,
-                &api_key_account,
-                &oauth_account,
-            )?;
-
-            let sync_result =
-                match sync_managed_projection_from_auth_dir(&oauth_account.id, auth_dir) {
-                    Ok(_) => {
-                        let latest_oauth_account = load_account(&oauth_account.id)
-                            .unwrap_or_else(|| oauth_account.clone());
-                        match write_api_key_account_bundle_with_oauth_to_dir(
-                            auth_dir,
-                            &api_key_account,
-                            &latest_oauth_account,
-                        ) {
-                            Ok(_) => None,
-                            Err(err) => Some(err),
-                        }
-                    }
-                    Err(err) => Some(err),
-                };
-            sync_result
-        } else {
-            write_prepared_account_bundle_to_dir(auth_dir, &api_key_account)?;
-            None
-        };
-        let result = operation(&api_key_account);
-        let latest_account = load_account(account_id).unwrap_or(api_key_account);
-
-        return Ok((latest_account, result, sync_error));
-    }
-
-    let lock = codex_token_lock_for(account_id);
-    let _guard = lock.lock().await;
-    let _file_guard = acquire_codex_token_refresh_file_lock(account_id, reason).await?;
-    let account =
-        refresh_managed_account_locked(account_id, false, reason, None, false, false).await?;
-    write_prepared_account_bundle_to_dir(auth_dir, &account)?;
-
-    let result = operation(&account);
-    let sync_error = match sync_managed_projection_from_auth_dir(account_id, auth_dir) {
-        Ok(_) => None,
-        Err(err) => Some(err),
-    };
-    let latest_account = load_account(account_id).unwrap_or(account);
-
-    Ok((latest_account, result, sync_error))
-}
-
 /// 准备账号注入：刷新前会先采用更新的官方凭证，目标 profile 仅在本次显式注入时写入。
 pub async fn prepare_account_for_injection_from_auth_dir(
     account_id: &str,
@@ -861,20 +791,6 @@ where
 {
     switch_account_managed_with_before_commit_options(account_id, false, before_commit)
     .await
-}
-
-/// 用户从账号页主动切号时使用：每次都重新读取当前凭据，并按统一 Token Authority
-/// 规则刷新 access_token/id_token；不额外调用远端账号检查接口。
-pub async fn switch_account_managed_with_before_commit_and_revalidation<F, Fut>(
-    account_id: &str,
-    before_commit: F,
-) -> Result<CodexAccount, String>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<(), String>>,
-{
-    switch_account_managed_with_before_commit_and_revalidation_options(account_id, before_commit)
-        .await
 }
 
 pub async fn switch_account_managed_with_before_commit_and_revalidation_options<F, Fut>(

@@ -162,6 +162,7 @@ fn create_request_logs_table(
             model_id TEXT NOT NULL DEFAULT '',
             gateway_mode TEXT NOT NULL DEFAULT '',
             request_kind TEXT NOT NULL DEFAULT 'other',{service_tier_column}
+            response_service_tier TEXT NOT NULL DEFAULT '',
             success INTEGER NOT NULL DEFAULT 0,
             http_status INTEGER,
             error_category TEXT NOT NULL DEFAULT '',
@@ -230,6 +231,11 @@ fn open_local_access_logs_db_once(
             "service_tier TEXT NOT NULL DEFAULT ''",
         )?;
     }
+    ensure_request_logs_column(
+        &conn,
+        "response_service_tier",
+        "response_service_tier TEXT NOT NULL DEFAULT ''",
+    )?;
     ensure_request_logs_column(
         &conn,
         "reasoning_effort",
@@ -506,7 +512,12 @@ fn insert_local_access_usage_event(
     let service_tier = event
         .service_tier
         .as_deref()
-        .and_then(normalize_proxy_service_tier)
+        .and_then(normalize_recorded_service_tier)
+        .unwrap_or_default();
+    let response_service_tier = event
+        .response_service_tier
+        .as_deref()
+        .and_then(normalize_recorded_service_tier)
         .unwrap_or_default();
     let reasoning_effort = event
         .reasoning_effort
@@ -546,8 +557,9 @@ fn insert_local_access_usage_event(
                 model_pricing_version,
                 input_usd_per_million,
                 output_usd_per_million,
-                cached_input_usd_per_million
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
+                cached_input_usd_per_million,
+                response_service_tier
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)
             "#,
             params![
                 local_access_log_event_key(event),
@@ -582,6 +594,7 @@ fn insert_local_access_usage_event(
                 event.input_usd_per_million,
                 event.output_usd_per_million,
                 event.cached_input_usd_per_million,
+                response_service_tier,
             ],
         )
         .map_err(|e| format!("写入 API 服务请求日志失败: {}", e))?;
@@ -616,8 +629,9 @@ fn insert_local_access_usage_event(
                 model_pricing_version,
                 input_usd_per_million,
                 output_usd_per_million,
-                cached_input_usd_per_million
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+                cached_input_usd_per_million,
+                response_service_tier
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
             "#,
             params![
                 local_access_log_event_key(event),
@@ -651,6 +665,7 @@ fn insert_local_access_usage_event(
                 event.input_usd_per_million,
                 event.output_usd_per_million,
                 event.cached_input_usd_per_million,
+                response_service_tier,
             ],
         )
         .map_err(|e| format!("写入 API 服务请求日志失败: {}", e))?;
@@ -684,8 +699,9 @@ fn insert_local_access_usage_event(
                 model_pricing_version,
                 input_usd_per_million,
                 output_usd_per_million,
-                cached_input_usd_per_million
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
+                cached_input_usd_per_million,
+                response_service_tier
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
             "#,
             params![
                 local_access_log_event_key(event),
@@ -718,6 +734,7 @@ fn insert_local_access_usage_event(
                 event.input_usd_per_million,
                 event.output_usd_per_million,
                 event.cached_input_usd_per_million,
+                response_service_tier,
             ],
         )
         .map_err(|e| format!("写入 API 服务请求日志失败: {}", e))?;
@@ -1467,6 +1484,7 @@ fn clear_local_access_usage_events_db() -> Result<(), String> {
 fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalAccessUsageEvent> {
     let request_kind: String = row.get("request_kind")?;
     let service_tier: String = row.get("service_tier")?;
+    let response_service_tier: String = row.get("response_service_tier").unwrap_or_default();
     let reasoning_effort: String = row.get::<_, String>("reasoning_effort").unwrap_or_default();
     let success: i64 = row.get("success")?;
     let http_status: Option<i64> = row.get("http_status")?;
@@ -1489,7 +1507,9 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
         model_id: row.get("model_id")?,
         gateway_mode: gateway_mode_from_db_value(gateway_mode.as_str()),
         request_kind: request_kind_from_db_value(request_kind.as_str()),
-        service_tier: normalize_proxy_service_tier(service_tier.as_str()).map(str::to_string),
+        service_tier: normalize_recorded_service_tier(service_tier.as_str()).map(str::to_string),
+        response_service_tier: normalize_recorded_service_tier(response_service_tier.as_str())
+            .map(str::to_string),
         reasoning_effort: normalize_recorded_reasoning_effort(reasoning_effort.as_str())
             .map(str::to_string),
         success: success != 0,
@@ -1544,6 +1564,13 @@ where
     } else {
         "'' AS reasoning_effort"
     };
+    let response_service_tier_select = if request_logs_has_column(conn, "response_service_tier")
+        .map_err(|e| format!("检查 API 服务日志 response_service_tier 列失败: {}", e))?
+    {
+        "response_service_tier"
+    } else {
+        "'' AS response_service_tier"
+    };
     let load_sql = format!(
         r#"
             SELECT
@@ -1558,7 +1585,7 @@ where
                 gateway_mode,
                 request_kind,
                 {service_tier_select},
-                {reasoning_effort_select},
+                {reasoning_effort_select}, {response_service_tier_select},
                 success,
                 http_status,
                 error_category,
@@ -1775,6 +1802,17 @@ fn query_local_access_usage_events_blocking(
             return Ok(empty_usage_event_page(page, page_size));
         }
     };
+    let response_service_tier_select = match request_logs_has_column(&conn, "response_service_tier") {
+        Ok(true) => "response_service_tier",
+        Ok(false) => "'' AS response_service_tier",
+        Err(error) => {
+            logger::log_codex_api_warn(&format!(
+                "检查 API 服务日志 response_service_tier 列失败，本次返回空日志列表: {}",
+                error
+            ));
+            return Ok(empty_usage_event_page(page, page_size));
+        }
+    };
     let list_sql = format!(
         r#"
         SELECT
@@ -1789,7 +1827,7 @@ fn query_local_access_usage_events_blocking(
             gateway_mode,
             request_kind,
             {service_tier_select},
-            {reasoning_effort_select},
+            {reasoning_effort_select}, {response_service_tier_select},
             success,
             http_status,
             error_category,
@@ -1911,9 +1949,16 @@ fn query_local_access_stats_window_blocking(
     } else {
         "'' AS reasoning_effort"
     };
+    let response_service_tier_select = if request_logs_has_column(&conn, "response_service_tier")
+        .map_err(|e| format!("检查 API 服务日志 response_service_tier 列失败: {}", e))?
+    {
+        "response_service_tier"
+    } else {
+        "'' AS response_service_tier"
+    };
     let sql = format!(
         r#"SELECT timestamp, request_id, account_id, email, api_key_id, api_key_label,
-                  client_instance_id, model_id, gateway_mode, request_kind, {service_tier_select}, {reasoning_effort_select}, success,
+                  client_instance_id, model_id, gateway_mode, request_kind, {service_tier_select}, {reasoning_effort_select}, {response_service_tier_select}, success,
                   http_status, error_category, error_message, latency_ms, input_tokens,
                   output_tokens, total_tokens, cached_tokens, reasoning_tokens, token_breakdown_json,
                   estimated_cost_usd, model_pricing_version, input_usd_per_million,
@@ -2219,6 +2264,7 @@ fn append_usage_event(
     request_kind: CodexLocalAccessRequestKind,
     service_tier: Option<&str>,
     reasoning_effort: Option<&str>,
+    response_service_tier: Option<&str>,
     success: bool,
     http_status: Option<u16>,
     error_category: Option<&str>,
@@ -2242,7 +2288,10 @@ fn append_usage_event(
         gateway_mode,
         request_kind,
         service_tier: service_tier
-            .and_then(normalize_proxy_service_tier)
+            .and_then(normalize_recorded_service_tier)
+            .map(str::to_string),
+        response_service_tier: response_service_tier
+            .and_then(normalize_recorded_service_tier)
             .map(str::to_string),
         reasoning_effort: reasoning_effort
             .and_then(normalize_recorded_reasoning_effort)
@@ -2432,6 +2481,7 @@ fn load_stats_windows_and_recent_events(
     load_stats_windows_and_recent_events_from_conn(&conn, now)
 }
 
+#[cfg(test)]
 fn recompute_time_windows(stats: &mut CodexLocalAccessStats, now: i64) {
     let (day_since, week_since, month_since) = local_calendar_window_starts(now);
 

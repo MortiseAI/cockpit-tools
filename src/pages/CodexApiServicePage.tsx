@@ -43,6 +43,7 @@ import {
   type InstanceProfile,
 } from "../types/instance";
 import type {
+  CodexLocalAccessLaunchMode,
   CodexLocalAccessAddressKind,
   CodexLocalAccessAccountModelRule,
   CodexLocalAccessApiKey,
@@ -769,6 +770,7 @@ export function useCodexApiServicePageController() {
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [healthModalOpen, setHealthModalOpen] = useState(false);
   const [apiServiceIsCurrent, setApiServiceIsCurrent] = useState(false);
+  const [launchPreviewOpen, setLaunchPreviewOpen] = useState(false);
   const [apiKeyDrafts, setApiKeyDrafts] = useState<Record<string, string>>({});
   const [apiKeyPolicyDrafts, setApiKeyPolicyDrafts] = useState<
     Record<string, ApiKeyPolicyDraft>
@@ -1695,30 +1697,11 @@ export function useCodexApiServicePageController() {
     });
   }, []);
 
-  const handleActivateService = async () => {
-    if (!collection) return;
-    if (collection.enabled) {
-      setNotice(
-        t(
-          "codex.localAccess.serverOnlyRunning",
-          "API 服务正在运行；默认 ~/.codex 和官方 Codex App 不会被接管。",
-        ),
-      );
-      return;
-    }
-    const confirmedEnable = await confirmDialog(
-      t(
-        "codex.localAccess.enableServerOnlyMessage",
-        "将启动本地 API 服务，但不会切换或修改默认 ~/.codex。是否继续？",
-      ),
-      {
-        title: t("codex.localAccess.enableBeforeActivateTitle", "服务未启用"),
-        kind: "warning",
-        okLabel: t("codex.localAccess.enableService", "启用服务"),
-        cancelLabel: t("common.cancel", "取消"),
-      },
-    );
-    if (!confirmedEnable) return;
+  const handleActivateService = async (
+    _launchAfterSwitch: boolean,
+    launchMode: CodexLocalAccessLaunchMode = "serverOnly",
+  ): Promise<boolean> => {
+    if (!collection) return false;
     if (!isCodexLocalAccessRiskNoticeDismissed()) {
       const confirmedRisk = await confirmDialog(
         t(
@@ -1735,41 +1718,44 @@ export function useCodexApiServicePageController() {
           cancelLabel: t("common.cancel", "取消"),
         },
       );
-      if (!confirmedRisk) return;
+      if (!confirmedRisk) return false;
     }
 
     setActivating(true);
     setError("");
     setNotice("");
     try {
-      const next = await codexLocalAccessService.setCodexLocalAccessEnabled(true);
-      if (!mountedRef.current) return;
+      const next = await codexLocalAccessService.activateCodexLocalAccess(null, launchMode);
+      if (!mountedRef.current) return false;
       setState(next);
       await refreshApiServiceCurrent();
       setNotice(
-        t(
-          "codex.localAccess.serverOnlyEnabled",
-          "API 服务已启用；请通过独立 CLI 实例或进程级环境变量连接。",
-        ),
+        launchMode === "globalProxy"
+          ? t("codex.localAccess.globalProxyEnabled", "全局代理已启用，本地 Codex 已连接 API 服务。")
+          : t("codex.localAccess.serverOnlyEnabled", "API 服务已启用，本地 Codex 不使用代理。"),
       );
+      setLaunchPreviewOpen(false);
+      return true;
     } catch (err) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) return false;
       if (
         presentWindowsOperationError({
           error: err,
           operation: "start_sidecar",
           summary: t("codex.localAccess.enableService", "启用服务"),
           retry: async () => {
-            const next = await codexLocalAccessService.setCodexLocalAccessEnabled(true);
+            const next = await codexLocalAccessService.activateCodexLocalAccess(null, launchMode);
             if (!mountedRef.current) return;
             setState(next);
             await refreshApiServiceCurrent();
+            setLaunchPreviewOpen(false);
           },
         })
       ) {
-        return;
+        setLaunchPreviewOpen(false);
+        return true;
       }
-      setError(String(err).replace(/^Error:\s*/, ""));
+      throw err;
     } finally {
       if (mountedRef.current) {
         setActivating(false);
@@ -3644,6 +3630,8 @@ export function useCodexApiServicePageController() {
     gatewayModeLabel,
     groups,
     handleActivateService,
+    launchPreviewOpen,
+    setLaunchPreviewOpen,
     handleApplyAccountModelRuleBulk,
     handleClearStats,
     handleCloseAccountModelMappings,

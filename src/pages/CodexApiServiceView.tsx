@@ -1,3 +1,4 @@
+import { CodexServiceTierBadge } from "../components/codex/CodexServiceTierBadge";
 import { Activity, BadgeDollarSign, ChevronDown, Check, CircleAlert, Copy, Eye, EyeOff, FolderPlus, Gauge, Image, Pin, PinOff, Play, Plus, Power, RefreshCw, Route, Send, ShieldCheck, SlidersHorizontal, Trash2, Undo2, Wrench, X } from "lucide-react";
 import { CodexIcon } from "../components/icons/CodexIcon";
 import { ManualHelpIconButton } from "../components/ManualHelpIconButton";
@@ -9,6 +10,7 @@ import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
 import { formatCodexQuotaPoolPercent, formatCodexQuotaPoolWindowLabel } from "../utils/codexQuotaPool";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
+import { CodexLaunchPreviewModal } from "../components/codex/CodexLaunchPreviewModal";
 import { CodexLocalAccessModal } from "../components/CodexLocalAccessModal";
 import { CodexAccountPoolHealthModal } from "../components/CodexAccountPoolHealthModal";
 import { CodexStatsRangePicker } from "../components/CodexStatsRangePicker";
@@ -87,6 +89,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     gatewayModeLabel,
     groups,
     handleActivateService,
+    launchPreviewOpen,
+    setLaunchPreviewOpen,
     handleApplyAccountModelRuleBulk,
     handleClearStats,
     handleCloseAccountModelMappings,
@@ -280,6 +284,16 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
   } = props;
   return (
     <div className="codex-api-service-page">
+      {launchPreviewOpen && (
+        <CodexLaunchPreviewModal
+          accountLabel={t("codex.localAccess.title", "API 服务")}
+          accountMetaLabel={t("codex.apiSwitchNotice.type.apiKey", "API 密钥")}
+          initialApiServiceLaunchMode={collection?.launchMode}
+          mode="apiService"
+          onClose={() => setLaunchPreviewOpen(false)}
+          onExecute={handleActivateService}
+        />
+      )}
       <div className="page-top-strip">
         <div className="page-top-strip-left">
           <span className="page-top-strip-label">
@@ -416,7 +430,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
             <button
               type="button"
               className={`btn ${apiServiceIsCurrent ? "btn-secondary" : "btn-primary"}`}
-              onClick={() => void handleActivateService()}
+              onClick={() => setLaunchPreviewOpen(true)}
               disabled={
                 !collection ||
                 busy ||
@@ -425,8 +439,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 testDialogRunning
               }
               title={t(
-                "codex.localAccess.enableServerOnlyAction",
-                "启用 API 服务（不接管默认 Codex）",
+                "codex.localAccess.activateAction",
+                "启动 API 服务",
               )}
             >
               {activating ? (
@@ -435,8 +449,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 <Play size={14} />
               )}
               {t(
-                "codex.localAccess.enableServerOnlyAction",
-                "启用 API 服务（不接管默认 Codex）",
+                "codex.localAccess.activateAction",
+                "启动 API 服务",
               )}
             </button>
             <button
@@ -2395,6 +2409,10 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                               ? t("codex.localAccess.requestLogSuccess", "成功")
                               : t("codex.localAccess.requestLogFailed", "失败")}
                           </span>
+                          <CodexServiceTierBadge
+                            serviceTier={event.serviceTier}
+                            responseServiceTier={event.responseServiceTier}
+                          />
                           {event.reasoningEffort ? (
                             <span
                               className="codex-api-service-pill muted"
@@ -2409,20 +2427,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                               })}
                             </span>
                           ) : null}
-                          {event.serviceTier ? (
-                            <span
-                              className="codex-api-service-pill muted"
-                              title={t(
-                                "codex.apiService.logs.serviceTier",
-                                "服务等级",
-                              )}
-                            >
-                              {t("codex.apiService.logs.serviceTierValue", {
-                                tier: event.serviceTier,
-                                defaultValue: "Tier {{tier}}",
-                              })}
-                            </span>
-                          ) : null}
+
                           <span
                             className={`codex-api-service-pill ${
                               event.gatewayMode === "legacy"

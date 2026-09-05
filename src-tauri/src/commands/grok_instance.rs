@@ -39,6 +39,7 @@ fn is_grok_reauth_prepare_error(error: &str) -> bool {
         || normalized.contains("reauth")
 }
 
+#[cfg(test)]
 fn is_grok_cli_missing_error(error: &str) -> bool {
     let normalized = error.to_ascii_lowercase();
     normalized.contains("未检测到 grok cli")

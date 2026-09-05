@@ -33,6 +33,7 @@ fn windows_user_data_candidates(roaming_dir: &Path) -> Vec<PathBuf> {
 }
 
 /// 优先选择「User/globalStorage/state.vscdb 真实存在」的候选目录，避免误选空壳安装路径。
+#[cfg(any(test, target_os = "windows"))]
 pub fn prefer_user_data_dir_with_state_db(candidates: &[PathBuf], fallback: PathBuf) -> PathBuf {
     for candidate in candidates {
         let state_db = candidate
@@ -148,20 +149,14 @@ pub fn legacy_managed_instances_root_dir() -> Result<PathBuf, String> {
     Err("无法确定 Antigravity 默认实例目录".to_string())
 }
 
+#[cfg(target_os = "windows")]
 pub fn global_storage_dir() -> Result<PathBuf, String> {
     Ok(default_user_data_dir()?.join("User").join("globalStorage"))
 }
 
+#[cfg(target_os = "windows")]
 pub fn state_db_path() -> Result<PathBuf, String> {
     Ok(global_storage_dir()?.join("state.vscdb"))
-}
-
-pub fn storage_json_path() -> Result<PathBuf, String> {
-    Ok(global_storage_dir()?.join("storage.json"))
-}
-
-pub fn machine_id_path() -> Result<PathBuf, String> {
-    Ok(default_user_data_dir()?.join("machineid"))
 }
 
 pub fn legacy_global_storage_dir() -> Result<PathBuf, String> {

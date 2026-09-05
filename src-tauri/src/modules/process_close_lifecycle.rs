@@ -194,21 +194,6 @@ pub fn close_qoder_instances(user_data_dirs: &[String], timeout_secs: u64) -> Re
     )
 }
 
-pub fn close_trae_instances(user_data_dirs: &[String], timeout_secs: u64) -> Result<(), String> {
-    let default_dir = get_default_trae_user_data_dir_for_os()
-        .map(|value| normalize_path_for_compare(&value))
-        .filter(|value| !value.is_empty());
-    close_user_data_dir_scoped_instances(
-        "Trae Close",
-        "Trae",
-        "Unable to close managed Trae instances; please close them manually and retry",
-        user_data_dirs,
-        timeout_secs,
-        default_dir,
-        collect_trae_process_entries,
-    )
-}
-
 pub fn close_trae_platform_default(platform_id: &str, timeout_secs: u64) -> Result<(), String> {
     let platform = crate::modules::trae_account::TraePlatformKind::parse(Some(platform_id))?;
     let default_dir = get_default_trae_user_data_dir_for_platform_for_os(platform)

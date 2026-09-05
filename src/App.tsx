@@ -12,7 +12,7 @@ import './App.css';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
 import { FileText, FolderOpen, RefreshCw, X } from 'lucide-react';
@@ -3575,7 +3575,7 @@ function MainApp() {
 
   // 窗口拖拽处理
   const handleDragStart = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0) {
+    if (event.button !== 0 || !isTauri()) {
       return;
     }
     void getCurrentWindow().startDragging().catch((error) => {
@@ -4098,7 +4098,7 @@ function MainApp() {
 }
 
 function App() {
-  const windowLabel = getCurrentWindow().label;
+  const windowLabel = isTauri() ? getCurrentWindow().label : 'main';
   if (windowLabel === 'floating-card' || windowLabel.startsWith('instance-floating-card-')) {
     return <FloatingCardWindow />;
   }

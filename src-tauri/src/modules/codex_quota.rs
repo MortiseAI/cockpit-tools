@@ -1813,29 +1813,6 @@ pub async fn refresh_freshly_authorized_account_quota(
     Ok(result.quota)
 }
 
-pub async fn refresh_account_quota_with_options(
-    account_id: &str,
-    options: RefreshQuotaOptions,
-) -> Result<CodexQuota, String> {
-    let account = codex_account::load_account(account_id)
-        .ok_or_else(|| format!("账号不存在: {}", account_id))?;
-    let runtime_snapshot = if account.is_api_key_auth()
-        || account.is_agent_identity_auth()
-        || account.is_web_session_auth()
-    {
-        codex_account::CodexQuotaRuntimeSnapshot::empty()
-    } else {
-        codex_account::CodexQuotaRuntimeSnapshot::capture().await?
-    };
-    let result = refresh_account_quota_once(account_id, options, &runtime_snapshot).await;
-    crate::modules::codex_local_access::reevaluate_bound_oauth_quota_reserve_after_refresh(
-        account_id,
-        result.is_ok(),
-    )
-    .await;
-    result
-}
-
 pub async fn probe_import_account_quota(account: &CodexAccount) -> Result<CodexQuota, String> {
     if account.is_agent_identity_auth() {
         return fetch_quota(account).await.map(|result| result.quota);
@@ -1904,16 +1881,6 @@ fn attach_runtime_snapshot_to_account_ids(
         .into_iter()
         .map(|account_id| (account_id, runtime_snapshot.clone()))
         .collect()
-}
-
-/// 按账号 ID 列表限流并发刷新配额（分组/勾选批量共用）。
-///
-/// `respect_group_quota_refresh=true`：跳过分组策略为「不刷新」的账号。
-/// 显式「刷新分组」应传 `false`。
-pub async fn refresh_quotas_for_account_ids(
-    account_ids: &[String],
-) -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
-    refresh_quotas_for_account_ids_with_options(account_ids, true).await
 }
 
 pub async fn refresh_quotas_for_account_ids_with_options(

@@ -359,12 +359,6 @@ fn load_local_oauth_snapshot_from_official_store(
     )
 }
 
-/// 读取官方 app-server 登录完成后写入的 OAuth 凭据。
-/// 官方存储（auth.json 或 Keychain）是认证权威源，账号库只保存管理索引。
-pub(crate) fn read_official_oauth_tokens(base_dir: &Path) -> Option<CodexTokens> {
-    load_local_oauth_snapshot_from_official_store(base_dir).map(|snapshot| snapshot.tokens)
-}
-
 fn local_oauth_snapshot_matches_account(
     snapshot: &LocalCodexOAuthSnapshot,
     account: &CodexAccount,
@@ -785,6 +779,7 @@ async fn sync_active_official_account_before_switch() -> Result<bool, String> {
     Ok(changed)
 }
 
+#[cfg(test)]
 fn sync_account_from_auth_dir_if_current(
     account: &mut CodexAccount,
     base_dir: &Path,
@@ -814,42 +809,8 @@ fn sync_account_from_auth_dir_if_current(
     Ok(true)
 }
 
-/// 显式导入/同步入口：只在用户主动选择从官方目录回读时使用，业务主路径禁止自动调用。
-pub fn sync_current_official_account_from_dir(
-    base_dir: &Path,
-) -> Result<Option<CodexAccount>, String> {
-    let Some(snapshot) = load_local_oauth_snapshot_from_official_store(base_dir) else {
-        return Ok(None);
-    };
-
-    for mut account in list_accounts() {
-        if account.is_api_key_auth() {
-            continue;
-        }
-        if !local_oauth_snapshot_matches_account(&snapshot, &account) {
-            continue;
-        }
-
-        if apply_local_oauth_snapshot(&mut account, &snapshot) {
-            save_account(&account)?;
-            logger::log_info(&format!(
-                "Codex 当前官方凭证已同步回账号库: account_id={}, source_dir={}",
-                account.id,
-                base_dir.display()
-            ));
-        }
-        persist_managed_projection_credential_owner_best_effort(
-            base_dir,
-            &account,
-            "official-account-import",
-        );
-        return Ok(Some(account));
-    }
-
-    Ok(None)
-}
-
 /// 显式导入/同步入口：只在用户主动选择从指定目录回读时使用，业务主路径禁止自动调用。
+#[cfg(test)]
 pub fn sync_account_from_auth_dir(
     account_id: &str,
     base_dir: &Path,
@@ -864,6 +825,7 @@ pub fn sync_account_from_auth_dir(
     Ok(account)
 }
 
+#[cfg(test)]
 pub fn sync_managed_projection_from_auth_dir(
     account_id: &str,
     base_dir: &Path,

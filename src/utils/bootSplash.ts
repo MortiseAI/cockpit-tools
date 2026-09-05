@@ -69,6 +69,23 @@ export function dismissBootSplash(): void {
   }, BOOT_SPLASH_REMOVE_DELAY_MS);
 }
 
+export function showBootSplashError(message: string): void {
+  const splash = bootSplashElement();
+  if (!splash || bootSplashDismissed) {
+    return;
+  }
+  const recovery = document.getElementById("app-boot-recovery");
+  const detail = document.getElementById("app-boot-message");
+  if (detail) {
+    detail.textContent = message;
+  }
+  if (recovery) {
+    recovery.hidden = false;
+  }
+  splash.setAttribute("aria-hidden", "false");
+  splash.setAttribute("role", "alert");
+}
+
 export function resetBootSplashStateForTests(): void {
   bootSplashDismissed = false;
   lastProgress = 0;

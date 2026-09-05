@@ -347,6 +347,7 @@ fn credential_key(home_dir: &Path) -> [u8; 32] {
     Sha256::digest(credential_secret_for_home(home_dir).as_bytes()).into()
 }
 
+#[cfg(test)]
 fn credential_key_from_fallback(platform: &str, home_dir: &Path, username: &str) -> [u8; 32] {
     Sha256::digest(fallback_credential_secret(platform, home_dir, username).as_bytes()).into()
 }

@@ -1144,6 +1144,7 @@ pub fn load_current_quick_config() -> Result<CodexQuickConfig, String> {
     read_quick_config_from_config_toml(&get_codex_home())
 }
 
+#[cfg(test)]
 fn write_quick_config_to_config_toml(
     base_dir: &Path,
     model_context_window: Option<i64>,
@@ -1339,6 +1340,7 @@ pub fn save_current_quick_config(
     )
 }
 
+#[cfg(test)]
 pub fn save_quick_config_for_base_dir(
     base_dir: &Path,
     model_context_window: Option<i64>,
@@ -1473,6 +1475,7 @@ fn read_api_provider_from_config_toml(base_dir: &Path) -> ApiProviderConfig {
     )
 }
 
+#[cfg(test)]
 fn write_api_provider_to_config_toml(
     base_dir: &Path,
     provider_config: &ApiProviderConfig,

@@ -1150,6 +1150,7 @@ fn windows_excluded_tcp_port_ranges() -> Vec<(u16, u16)> {
 }
 
 /// 解析 `netsh ... excludedportrange` 文本中的起止端口。
+#[cfg(any(test, target_os = "windows"))]
 pub fn parse_windows_excluded_port_ranges(output: &str) -> Vec<(u16, u16)> {
     let mut ranges = Vec::new();
     for line in output.lines() {
@@ -1744,6 +1745,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
         if next_collection.is_none() {
             next_collection = Some(CodexLocalAccessCollection {
                 enabled: false,
+                launch_mode: Default::default(),
                 port: allocate_initial_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
                 api_key: generate_local_api_key(),
                 api_keys: Vec::new(),
@@ -1825,10 +1827,11 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
             }
         }
 
-        // API 服务是 server-only by default。启动时主动撤销历史版本对
-        // 官方 ~/.codex 的持久化接管，同时保留网关本身和独立实例绑定。
+        // Older configurations default to server-only; preserve an explicitly selected global proxy.
         #[cfg(not(test))]
-        if let Some(collection) = next_collection.as_ref() {
+        if let Some(collection) = next_collection.as_ref()
+            .filter(|collection| collection.launch_mode == CodexLocalAccessLaunchMode::ServerOnly)
+        {
             let default_profile = codex_account::get_codex_home();
             match restore_profile_takeover_after_detach(&default_profile, collection) {
                 Ok(true) => logger::log_codex_api_info(

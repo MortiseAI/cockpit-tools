@@ -482,10 +482,20 @@ pub struct CodexLocalAccessQuotaReserve {
     pub weekly_percent: i32,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CodexLocalAccessLaunchMode {
+    GlobalProxy,
+    #[default]
+    ServerOnly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessCollection {
     pub enabled: bool,
+    #[serde(default)]
+    pub launch_mode: CodexLocalAccessLaunchMode,
     pub port: u16,
     pub api_key: String,
     #[serde(default)]
@@ -692,6 +702,9 @@ pub struct CodexLocalAccessUsageEvent {
     pub request_kind: CodexLocalAccessRequestKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<String>,
+    /// Service tier actually reported by the upstream response, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_service_tier: Option<String>,
     /// Request reasoning effort (e.g. low/medium/high/xhigh/max), when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,

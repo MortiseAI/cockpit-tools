@@ -38,6 +38,12 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 	// Stream must be set to true
 	out, _ = sjson.SetBytes(out, "stream", stream)
 
+	// Chat Completions builds a new Responses body, so retain an explicit Fast
+	// request instead of silently dropping it during protocol conversion.
+	if tier := strings.ToLower(strings.TrimSpace(root.Get("service_tier").String())); tier == "priority" || tier == "fast" {
+		out, _ = sjson.SetBytes(out, "service_tier", "priority")
+	}
+
 	// Codex not support temperature, top_p, top_k, max_output_tokens, so comment them
 	// if v := gjson.GetBytes(rawJSON, "temperature"); v.Exists() {
 	// 	out, _ = sjson.SetBytes(out, "temperature", v.Value())

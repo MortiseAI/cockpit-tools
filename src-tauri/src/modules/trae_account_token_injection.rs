@@ -705,63 +705,11 @@ fn read_local_trae_auth_from_storage_path(
     Ok(Some(payload))
 }
 
-pub(crate) fn read_local_trae_user_id_from_storage_path(
-    storage_path: &Path,
-) -> Result<Option<String>, String> {
-    Ok(read_local_trae_auth_from_storage_path(storage_path)?
-        .and_then(|payload| normalize_non_empty(payload.user_id.as_deref())))
-}
-
-pub(crate) fn account_user_id_for_local_session(account: &TraeAccount) -> Option<String> {
-    resolve_account_user_id_for_inject(account)
-}
-
-/// Persist a resolved official user id onto the saved account when missing.
-/// Helps later session-share switches without requiring a full re-import.
-pub(crate) fn backfill_account_user_id_if_missing(
-    account_id: &str,
-    user_id: &str,
-) -> Result<bool, String> {
-    let Some(mut account) = load_account(account_id) else {
-        return Ok(false);
-    };
-    if normalize_non_empty(account.user_id.as_deref()).is_some() {
-        return Ok(false);
-    }
-    let Some(uid) = normalize_non_empty(Some(user_id)) else {
-        return Ok(false);
-    };
-    account.user_id = Some(uid.clone());
-    account.last_used = chrono::Utc::now().timestamp_millis();
-    save_account_file(&account)?;
-    // Keep index summary in sync for UI/debug.
-    if let Ok(mut index) = load_account_index_checked() {
-        if let Some(item) = index.accounts.iter_mut().find(|item| item.id == account.id) {
-            item.user_id = Some(uid.clone());
-            item.last_used = account.last_used;
-            let _ = save_account_index(&index);
-        }
-    }
-    logger::log_info(&format!(
-        "[Trae Account] 回填官方用户 ID: account_id={}, user_id={}",
-        account_id, uid
-    ));
-    Ok(true)
-}
-
-pub fn read_local_trae_auth() -> Result<Option<TraeImportPayload>, String> {
-    read_local_trae_auth_for_platform(TraePlatformKind::Trae)
-}
-
 pub fn read_local_trae_auth_for_platform(
     platform: TraePlatformKind,
 ) -> Result<Option<TraeImportPayload>, String> {
     let storage_path = get_default_trae_storage_path_for_platform(platform)?;
     read_local_trae_auth_from_storage_path(&storage_path)
-}
-
-pub fn import_from_local() -> Result<Option<TraeAccount>, String> {
-    import_from_local_for_platform(TraePlatformKind::Trae)
 }
 
 pub fn import_from_local_for_platform(
@@ -873,10 +821,6 @@ pub(crate) fn resolve_running_account_refresh_protection_map(
     }
 
     protected
-}
-
-pub fn inject_to_trae(account_id: &str) -> Result<(), String> {
-    inject_to_trae_for_platform(TraePlatformKind::Trae, account_id)
 }
 
 pub fn inject_to_trae_for_platform(

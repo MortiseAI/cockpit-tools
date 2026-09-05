@@ -1566,13 +1566,6 @@ pub fn remove_account(account_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn remove_matching_default_auth(account: &GrokAccount) -> Result<(), String> {
-    let auth_path = default_grok_home()?.join(AUTH_FILE);
-    remove_matching_auth_scope(&auth_path, account, true)?;
-    remove_matching_auth_scope(&auth_path.with_extension("json.bak"), account, false)?;
-    Ok(())
-}
-
 fn auth_entry_matches_account(current: &Value, account: &GrokAccount) -> bool {
     let current_object = current.as_object();
     let same_token = current_object
@@ -1605,6 +1598,7 @@ fn auth_entry_matches_account(current: &Value, account: &GrokAccount) -> bool {
     same_email
 }
 
+#[cfg(test)]
 fn remove_matching_auth_scope(
     path: &Path,
     account: &GrokAccount,
@@ -2039,17 +2033,6 @@ async fn task_usage_for(account: &GrokAccount) -> Result<Value, String> {
     serde_json::from_str(&body).map_err(|error| format!("解析 Grok 任务配额失败: {}", error))
 }
 
-fn live_auth_path_for_account(account: &GrokAccount) -> Result<PathBuf, String> {
-    if config::get_user_config().grok_sync_official_auth_on_switch
-        && provider_current_state::get_current_account_id("grok")?.as_deref()
-            == Some(account.id.as_str())
-        && !account.is_api_key_auth()
-    {
-        return Ok(default_grok_home()?.join(AUTH_FILE));
-    }
-    Ok(managed_profile_dir(&account.id)?.join(AUTH_FILE))
-}
-
 /// access 仍可用的缓冲（秒）：未到 expires_at 且距过期大于该值时优先直接使用，不抢刷。
 const ACCESS_USABLE_LEAD_SECS: i64 = 60;
 /// 与 CLIProxyAPI RefreshLead 对齐：到期前 5 分钟主动 refresh。
@@ -2331,11 +2314,6 @@ fn adopt_best_live_credentials(account: &mut GrokAccount) -> Result<bool, String
         ));
     }
     Ok(changed)
-}
-
-/// 兼容旧调用名：行为升级为多源同账号 best-adopt。
-fn adopt_live_tokens_from_account_home(account: &mut GrokAccount) -> Result<bool, String> {
-    adopt_best_live_credentials(account)
 }
 
 async fn refresh_credentials(account: &mut GrokAccount, force: bool) -> Result<(), String> {

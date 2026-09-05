@@ -112,7 +112,6 @@ import {
 } from '../utils/accountSyncEvents';
 import './FloatingCardWindow.css';
 
-const windowInstance = getCurrentWindow();
 const FLOATING_CARD_WINDOW_LABEL = 'floating-card';
 const INSTANCE_FLOATING_CARD_WINDOW_LABEL_PREFIX = 'instance-floating-card-';
 const DEFAULT_INSTANCE_ID = '__default__';
@@ -238,6 +237,7 @@ function findInstanceById(instances: InstanceProfile[], instanceId: string): Ins
 }
 
 export function FloatingCardWindow() {
+  const [windowInstance] = useState(getCurrentWindow);
   const { t } = useTranslation();
   const currentWindowLabel = windowInstance.label;
   const isPrimaryFloatingCardWindow = currentWindowLabel === FLOATING_CARD_WINDOW_LABEL;

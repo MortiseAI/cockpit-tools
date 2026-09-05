@@ -2621,6 +2621,46 @@ func TestUsagePluginResolvesAPIKeyAndRequestKindFromCPARecord(t *testing.T) {
 	}
 }
 
+func TestUsagePluginForwardsServiceTierConfirmation(t *testing.T) {
+	for _, tc := range []struct{ requested, reported, wantRequested, wantReported string }{
+		{"auto", "priority", "auto", "priority"},
+		{"priority", "default", "priority", "default"},
+		{"fast", "", "priority", ""},
+		{"flex", "flex", "flex", "flex"},
+		{"", "", "", ""},
+	} {
+		t.Run(tc.requested+"/"+tc.reported, func(t *testing.T) {
+			tracker := newRequestUsageTracker()
+			plugin := &usagePlugin{tracker: tracker}
+			ctx := internallogging.WithRequestID(context.Background(), "req-tier")
+			plugin.HandleUsage(ctx, coreusage.Record{
+				Provider: "codex", Model: "gpt-6-astra",
+				ServiceTier: tc.requested, ResponseServiceTier: tc.reported,
+				RequestedAt: time.UnixMilli(123),
+			})
+			payload, ok := tracker.finalize("req-tier", usageFinalizeInput{status: http.StatusOK})
+			if !ok || payload.ServiceTier != tc.wantRequested || payload.ResponseServiceTier != tc.wantReported {
+				t.Fatalf("service tier evidence was not preserved: %#v", payload)
+			}
+			wire, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(wire, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantReported == "" {
+				if _, exists := decoded["responseServiceTier"]; exists {
+					t.Fatal("missing confirmation must stay absent")
+				}
+			} else if decoded["responseServiceTier"] != tc.wantReported {
+				t.Fatalf("upstream tier missing from usage JSON: %s", wire)
+			}
+		})
+	}
+}
+
 func TestUsagePluginForwardsReasoningEffortInUsagePayload(t *testing.T) {
 	tracker := newRequestUsageTracker()
 	plugin := &usagePlugin{tracker: tracker}

@@ -724,6 +724,7 @@ struct RequestStatsMeta<'a> {
     http_status: Option<u16>,
     error_message: Option<&'a str>,
     service_tier: Option<&'a str>,
+    response_service_tier: Option<&'a str>,
     reasoning_effort: Option<&'a str>,
 }
 
@@ -832,6 +833,7 @@ async fn record_request_stats_with_meta(
             request_kind,
             meta.service_tier,
             meta.reasoning_effort,
+            meta.response_service_tier,
             success,
             meta.http_status,
             error_category,
@@ -1068,6 +1070,7 @@ pub async fn prepare_local_access_for_bound_profile_dir(
 fn new_empty_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
     Ok(CodexLocalAccessCollection {
         enabled: false,
+        launch_mode: Default::default(),
         port: allocate_initial_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
         api_key: generate_local_api_key(),
         api_keys: Vec::new(),

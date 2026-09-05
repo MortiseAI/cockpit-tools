@@ -11,171 +11,19 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::modules::{logger, trae_account};
+use crate::modules::logger;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TraeSessionTransferReport {
     pub scanned_workspaces: usize,
     pub copied_keys: usize,
     pub merged_keys: usize,
-    /// True when the feature is enabled and a real source→target remap ran.
-    pub attempted: bool,
-    pub skipped_reason: Option<String>,
-}
-
-impl TraeSessionTransferReport {
-    pub fn total_changed(&self) -> usize {
-        self.copied_keys.saturating_add(self.merged_keys)
-    }
-
-    pub fn user_facing_summary(&self) -> String {
-        if let Some(reason) = self.skipped_reason.as_deref() {
-            return format!("会话共享未执行：{}", reason);
-        }
-        if !self.attempted {
-            return "会话共享未开启".to_string();
-        }
-        if self.total_changed() == 0 {
-            return format!(
-                "会话共享已执行，但无可迁移项（工作区 {} 个）",
-                self.scanned_workspaces
-            );
-        }
-        format!(
-            "已共享会话状态：工作区 {} 个，新增 {} 项，合并 {} 项",
-            self.scanned_workspaces, self.copied_keys, self.merged_keys
-        )
-    }
 }
 
 static TRANSFER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-static LAST_SWITCH_REPORT: OnceLock<Mutex<Option<TraeSessionTransferReport>>> = OnceLock::new();
 const SESSION_MEMENTO_KEY: &str = "memento/icube-ai-agent-storage";
 /// Match the official Trae session-memento capacity without ballooning state.vscdb.
 const SESSION_LIST_LIMIT: usize = 30;
-
-pub fn take_last_switch_report() -> Option<TraeSessionTransferReport> {
-    LAST_SWITCH_REPORT
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.take())
-}
-
-fn remember_switch_report(report: &TraeSessionTransferReport) {
-    if let Ok(mut guard) = LAST_SWITCH_REPORT.get_or_init(|| Mutex::new(None)).lock() {
-        *guard = Some(report.clone());
-    }
-}
-
-pub fn prepare_account_switch(
-    platform: trae_account::TraePlatformKind,
-    user_data_dir: &Path,
-    account_id: &str,
-) -> Result<TraeSessionTransferReport, String> {
-    if !sharing_enabled(platform) {
-        logger::log_info(&format!(
-            "[Trae Session Transfer] 已关闭切号共享，跳过: platform={}, account_id={}",
-            platform.provider_key(),
-            account_id
-        ));
-        let report = TraeSessionTransferReport {
-            skipped_reason: Some("设置中未开启切号共享本地会话".to_string()),
-            ..TraeSessionTransferReport::default()
-        };
-        remember_switch_report(&report);
-        return Ok(report);
-    }
-    let target = match trae_account::load_account(account_id) {
-        Some(account) => account,
-        None => {
-            logger::log_warn(&format!(
-                "[Trae Session Transfer] 目标账号不存在，跳过共享: platform={}, account_id={}",
-                platform.provider_key(),
-                account_id
-            ));
-            let report = TraeSessionTransferReport {
-                skipped_reason: Some("目标账号不存在".to_string()),
-                ..TraeSessionTransferReport::default()
-            };
-            remember_switch_report(&report);
-            return Ok(report);
-        }
-    };
-    // Soft-skip when uid is missing: never block inject/start after close.
-    // Official Trae scopes workspace keys by numeric user id
-    // (e.g. `{uid}_ai-chat:sessionRelation:*`, `memento/icube-ai-agent-storage-{uid}`).
-    let Some(target_uid) = trae_account::account_user_id_for_local_session(&target) else {
-        logger::log_warn(&format!(
-            "[Trae Session Transfer] 目标账号缺少用户 ID，跳过共享以免阻断切号启动: platform={}, account_id={}, email={}",
-            platform.provider_key(),
-            account_id,
-            target.email
-        ));
-        let report = TraeSessionTransferReport {
-            skipped_reason: Some(
-                "目标账号缺少官方用户 ID（请用该账号在 Trae 登录一次后再导入/刷新）".to_string(),
-            ),
-            ..TraeSessionTransferReport::default()
-        };
-        remember_switch_report(&report);
-        return Ok(report);
-    };
-    // Persist resolved uid so later switches keep working even if raw payload is sparse.
-    let _ = trae_account::backfill_account_user_id_if_missing(account_id, &target_uid);
-
-    let storage_path = user_data_dir
-        .join("User")
-        .join("globalStorage")
-        .join("storage.json");
-    let Some(source_uid) = trae_account::read_local_trae_user_id_from_storage_path(&storage_path)?
-    else {
-        logger::log_info(&format!(
-            "[Trae Session Transfer] 本地 storage 无当前用户 ID，跳过共享: platform={}, path={}",
-            platform.provider_key(),
-            storage_path.display()
-        ));
-        let report = TraeSessionTransferReport {
-            skipped_reason: Some("本地 Trae 尚未写入当前登录用户 ID".to_string()),
-            ..TraeSessionTransferReport::default()
-        };
-        remember_switch_report(&report);
-        return Ok(report);
-    };
-    if source_uid == target_uid {
-        logger::log_info(&format!(
-            "[Trae Session Transfer] 源/目标用户 ID 相同，无需共享: uid={}",
-            source_uid
-        ));
-        let report = TraeSessionTransferReport {
-            attempted: true,
-            skipped_reason: Some("源账号与目标账号为同一用户 ID".to_string()),
-            ..TraeSessionTransferReport::default()
-        };
-        remember_switch_report(&report);
-        return Ok(report);
-    }
-    let mut report = transfer_local_session_state(user_data_dir, &source_uid, &target_uid)?;
-    report.attempted = true;
-    if report.total_changed() == 0 {
-        logger::log_info(&format!(
-            "[Trae Session Transfer] 未发现可迁移会话键: platform={}, source_uid={}, target_uid={}, dir={}",
-            platform.provider_key(),
-            source_uid,
-            target_uid,
-            user_data_dir.display()
-        ));
-    }
-    remember_switch_report(&report);
-    Ok(report)
-}
-
-fn sharing_enabled(_platform: trae_account::TraePlatformKind) -> bool {
-    // Trae session sharing is disabled for this release: chat bodies live in an
-    // SQLCipher-encrypted ModularData/ai-agent database that we cannot safely
-    // remap across accounts. Index-only transfer has no user-visible benefit.
-    false
-}
 
 pub fn transfer_local_session_state(
     user_data_dir: &Path,

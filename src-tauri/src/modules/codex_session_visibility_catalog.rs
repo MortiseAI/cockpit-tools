@@ -164,16 +164,6 @@ fn read_session_index_map(root_dir: &Path) -> Result<HashMap<String, JsonValue>,
     Ok(entries)
 }
 
-fn count_session_index_entries_to_repair(
-    data_dir: &Path,
-) -> Result<SessionIndexRepairScan, String> {
-    count_session_index_entries_to_repair_for_options(
-        data_dir,
-        CodexSessionVisibilityRepairOptions::for_mode(CodexSessionVisibilityRepairMode::Deep),
-        &RepairTargetSelection::default(),
-    )
-}
-
 fn count_session_index_entries_to_repair_for_options(
     data_dir: &Path,
     options: CodexSessionVisibilityRepairOptions,
@@ -197,18 +187,6 @@ fn count_session_index_entries_to_repair_for_options(
         }
     }
     Ok(scan)
-}
-
-fn count_missing_session_index_entries(data_dir: &Path) -> Result<usize, String> {
-    Ok(count_session_index_entries_to_repair(data_dir)?.entries_to_add)
-}
-
-fn load_sqlite_thread_index_rows(data_dir: &Path) -> Result<Vec<SqliteThreadIndexRow>, String> {
-    load_sqlite_thread_index_rows_for_options(
-        data_dir,
-        CodexSessionVisibilityRepairOptions::for_mode(CodexSessionVisibilityRepairMode::Deep),
-        &RepairTargetSelection::default(),
-    )
 }
 
 fn load_sqlite_thread_index_rows_for_options(
@@ -427,16 +405,6 @@ fn session_index_entry_needs_update(
     }
 }
 
-fn reconcile_session_index_from_sqlite(
-    data_dir: &Path,
-) -> Result<SessionIndexReconcileResult, String> {
-    reconcile_session_index_from_sqlite_for_options(
-        data_dir,
-        CodexSessionVisibilityRepairOptions::for_mode(CodexSessionVisibilityRepairMode::Deep),
-        &RepairTargetSelection::default(),
-    )
-}
-
 fn reconcile_session_index_from_sqlite_for_options(
     data_dir: &Path,
     options: CodexSessionVisibilityRepairOptions,
@@ -620,14 +588,6 @@ fn resolve_rollout_path(data_dir: &Path, rollout_path: &str) -> PathBuf {
     }
 }
 
-fn count_sqlite_thread_timestamps_to_update(data_dir: &Path) -> Result<usize, String> {
-    count_sqlite_thread_timestamps_to_update_for_options(
-        data_dir,
-        CodexSessionVisibilityRepairOptions::for_mode(CodexSessionVisibilityRepairMode::Deep),
-        &RepairTargetSelection::default(),
-    )
-}
-
 fn count_sqlite_thread_timestamps_to_update_for_options(
     data_dir: &Path,
     options: CodexSessionVisibilityRepairOptions,
@@ -759,14 +719,6 @@ fn plan_sqlite_thread_timestamp_repair_for_db(
         has_updated_at,
         has_updated_at_ms,
     })
-}
-
-fn repair_sqlite_thread_timestamps(data_dir: &Path) -> Result<usize, String> {
-    repair_sqlite_thread_timestamps_for_options(
-        data_dir,
-        CodexSessionVisibilityRepairOptions::for_mode(CodexSessionVisibilityRepairMode::Deep),
-        &RepairTargetSelection::default(),
-    )
 }
 
 fn repair_sqlite_thread_timestamps_for_options(

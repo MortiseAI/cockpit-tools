@@ -940,17 +940,6 @@ where
     }
 }
 
-fn is_default_codex_projection_dir(dir: &Path) -> bool {
-    if projection_dirs_equal(dir, &get_codex_home()) {
-        return true;
-    }
-
-    configured_codex_wsl_config_dir()
-        .as_deref()
-        .map(|wsl_dir| projection_dirs_equal(dir, wsl_dir))
-        .unwrap_or(false)
-}
-
 fn is_bound_api_key_account_id(
     bound_account_id: Option<&str>,
     oauth_account_id: &str,
@@ -1032,6 +1021,7 @@ fn managed_projection_dirs_for_account(account_id: &str) -> Vec<PathBuf> {
 /// 读取投影中持久化的凭据所有者，使 API Key 解绑或实例改绑后，原组合实例产生的新 RT
 /// 仍能在 OAuth 账号下次启动前被接回。v1 组合投影没有凭据所有者字段，只在 Token 身份
 /// 确认匹配时兼容接回，避免把其它账号的投影误归属。
+#[cfg(test)]
 fn authority_projection_dirs_for_account(account: &CodexAccount) -> Vec<PathBuf> {
     let process_entries = crate::modules::process::collect_codex_process_entries();
     authority_projection_dirs_for_account_with_entries(account, &process_entries)
@@ -1090,6 +1080,7 @@ fn authority_projection_dirs_for_account_with_entries(
     dirs
 }
 
+#[cfg(test)]
 pub fn cleanup_managed_model_catalogs_on_startup() -> Result<usize, String> {
     let current_account_id = load_account_index().current_account_id;
     let account_requires_managed_catalog = |account_id: Option<&str>| {
@@ -1152,10 +1143,6 @@ pub fn cleanup_managed_model_catalogs_on_startup() -> Result<usize, String> {
             failures.join("; ")
         ))
     }
-}
-
-fn projection_dirs_equal(left: &Path, right: &Path) -> bool {
-    left.to_string_lossy() == right.to_string_lossy()
 }
 
 fn sync_managed_account_sidecar(account: &CodexAccount) {

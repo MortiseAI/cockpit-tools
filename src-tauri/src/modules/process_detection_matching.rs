@@ -760,7 +760,7 @@ fn collect_antigravity_process_entries_from_sysinfo_fallback(
     result
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn collect_antigravity_process_entries_from_proc(
     expected_launch: &str,
 ) -> Vec<(u32, Option<String>)> {
@@ -1280,13 +1280,6 @@ fn resolve_qoder_target_and_fallback(user_data_dir: Option<&str>) -> Option<(Str
     )
 }
 
-fn resolve_trae_target_and_fallback(user_data_dir: Option<&str>) -> Option<(String, bool)> {
-    resolve_trae_target_and_fallback_for_platform(
-        user_data_dir,
-        crate::modules::trae_account::TraePlatformKind::Trae,
-    )
-}
-
 fn resolve_trae_target_and_fallback_for_platform(
     user_data_dir: Option<&str>,
     platform: crate::modules::trae_account::TraePlatformKind,
@@ -1572,15 +1565,6 @@ pub fn resolve_qoder_pid(last_pid: Option<u32>, user_data_dir: Option<&str>) -> 
     resolve_qoder_pid_from_entries(last_pid, user_data_dir, &entries)
 }
 
-pub fn resolve_trae_pid_from_entries(
-    last_pid: Option<u32>,
-    user_data_dir: Option<&str>,
-    entries: &[(u32, Option<String>)],
-) -> Option<u32> {
-    let (target, allow_none_for_target) = resolve_trae_target_and_fallback(user_data_dir)?;
-    resolve_pid_from_entries_by_user_data_dir(last_pid, &target, allow_none_for_target, entries)
-}
-
 fn resolve_trae_pid_from_entries_for_platform(
     last_pid: Option<u32>,
     user_data_dir: Option<&str>,
@@ -1590,11 +1574,6 @@ fn resolve_trae_pid_from_entries_for_platform(
     let (target, allow_none_for_target) =
         resolve_trae_target_and_fallback_for_platform(user_data_dir, platform)?;
     resolve_pid_from_entries_by_user_data_dir(last_pid, &target, allow_none_for_target, entries)
-}
-
-pub fn resolve_trae_pid(last_pid: Option<u32>, user_data_dir: Option<&str>) -> Option<u32> {
-    let entries = collect_trae_process_entries();
-    resolve_trae_pid_from_entries(last_pid, user_data_dir, &entries)
 }
 
 pub fn resolve_trae_pid_for_platform(
@@ -3098,10 +3077,6 @@ pub fn collect_qoder_process_entries() -> Vec<(u32, Option<String>)> {
     }
 }
 
-pub fn collect_trae_process_entries() -> Vec<(u32, Option<String>)> {
-    collect_trae_process_entries_for_platform(crate::modules::trae_account::TraePlatformKind::Trae)
-}
-
 pub fn collect_trae_process_entries_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
 ) -> Vec<(u32, Option<String>)> {
@@ -3353,12 +3328,6 @@ fn get_default_qoder_user_data_dir_for_os() -> Option<String> {
     crate::modules::qoder_instance::get_default_qoder_user_data_dir()
         .ok()
         .map(|value| value.to_string_lossy().to_string())
-}
-
-fn get_default_trae_user_data_dir_for_os() -> Option<String> {
-    get_default_trae_user_data_dir_for_platform_for_os(
-        crate::modules::trae_account::TraePlatformKind::Trae,
-    )
 }
 
 fn get_default_trae_user_data_dir_for_platform_for_os(

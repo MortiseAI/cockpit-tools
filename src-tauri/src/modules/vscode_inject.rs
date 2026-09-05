@@ -62,7 +62,6 @@ enum SafeStorageReadMode {
     CodeBuddyOnly,
     CodeBuddyCnOnly,
     QoderOnly,
-    WorkBuddyOnly,
 }
 
 // PBKDF2-HMAC-SHA1(1 iteration, key = "peanuts", salt = "saltysalt")
@@ -415,28 +414,6 @@ fn build_macos_safe_storage_candidates(
         ];
     }
 
-    if matches!(mode, SafeStorageReadMode::WorkBuddyOnly) {
-        return vec![
-            (
-                "WorkBuddy Safe Storage".to_string(),
-                Some("WorkBuddy".to_string()),
-            ),
-            (
-                "WorkBuddy Safe Storage".to_string(),
-                Some("workbuddy".to_string()),
-            ),
-            (
-                "WorkBuddy Safe Storage".to_string(),
-                Some("WorkBuddy Key".to_string()),
-            ),
-            ("WorkBuddy Safe Storage".to_string(), None),
-            (
-                "WorkBuddy Safe Storage".to_string(),
-                Some("WorkBuddy Safe Storage".to_string()),
-            ),
-        ];
-    }
-
     let mut app_names: Vec<String> = Vec::new();
     if let Some(root) = data_root {
         if let Some(name) = root.file_name().and_then(|value| value.to_str()) {
@@ -539,9 +516,6 @@ fn get_linux_v11_key(mode: SafeStorageReadMode) -> Option<[u8; 16]> {
             "codebuddycn",
         ],
         SafeStorageReadMode::QoderOnly => &["Qoder", "qoder"],
-        SafeStorageReadMode::WorkBuddyOnly => {
-            &["WorkBuddy", "workbuddy", "workbuddy-cn", "workbuddycn"]
-        }
         _ => &[
             "code",
             "Code",
@@ -990,20 +964,6 @@ pub fn read_codebuddy_cn_secret_storage_value(
     )
 }
 
-pub fn read_workbuddy_secret_storage_value(
-    extension_id: &str,
-    key: &str,
-    user_data_dir: Option<&str>,
-) -> Result<Option<String>, String> {
-    let data_root = resolve_vscode_data_root(user_data_dir)?;
-    read_secret_storage_value_with_data_root_and_mode(
-        &data_root,
-        extension_id,
-        key,
-        SafeStorageReadMode::WorkBuddyOnly,
-    )
-}
-
 fn read_github_auth_secret_for_data_root(data_root: &Path) -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     if let Some(shared_path) =
@@ -1245,19 +1205,6 @@ pub fn inject_secret_to_state_db_for_qoder(
     plaintext: &str,
 ) -> Result<(), String> {
     inject_secret_to_state_db_with_mode(db_path, db_key, plaintext, SafeStorageReadMode::QoderOnly)
-}
-
-pub fn inject_secret_to_state_db_for_workbuddy(
-    db_path: &std::path::Path,
-    db_key: &str,
-    plaintext: &str,
-) -> Result<(), String> {
-    inject_secret_to_state_db_with_mode(
-        db_path,
-        db_key,
-        plaintext,
-        SafeStorageReadMode::WorkBuddyOnly,
-    )
 }
 
 fn inject_secret_to_state_db_with_mode(

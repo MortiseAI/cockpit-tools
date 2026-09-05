@@ -141,6 +141,7 @@ pub fn resolve_managed_log_file(file_name: Option<&str>) -> Result<PathBuf, Stri
         .ok_or_else(|| "未找到可用日志文件".to_string())
 }
 
+#[cfg(test)]
 pub fn get_latest_app_log_file() -> Result<PathBuf, String> {
     list_log_files_by_name(|name| is_log_file_with_prefix(name, APP_LOG_FILE_PREFIX))?
         .into_iter()
@@ -399,10 +400,6 @@ pub fn log_codex_api_info(message: &str) {
 
 pub fn log_codex_api_warn(message: &str) {
     warn!(target: CODEX_API_LOG_TARGET, "{}", sanitize_message(message));
-}
-
-pub fn log_codex_api_error(message: &str) {
-    error!(target: CODEX_API_LOG_TARGET, "{}", sanitize_message(message));
 }
 
 /// Codex 授权诊断日志。只接受已经去除 bearer 凭据的诊断摘要，禁止写入原始 token。

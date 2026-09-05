@@ -205,6 +205,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             client_instance_id: "instance-1".to_string(),
             request_kind: "text".to_string(),
             service_tier: None,
+            response_service_tier: None,
             reasoning_effort: None,
             success: false,
             status: Some(200),
@@ -252,9 +253,9 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
-    fn sidecar_usage_reasoning_effort_deserializes_and_round_trips_to_sqlite() {
+    fn sidecar_usage_tiers_and_reasoning_effort_round_trip_to_sqlite() {
         let sidecar_event: SidecarUsageEvent =
-            serde_json::from_str(r#"{"reasoningEffort":"xhigh"}"#)
+            serde_json::from_str(r#"{"reasoningEffort":"xhigh","serviceTier":"auto","responseServiceTier":"priority"}"#)
                 .expect("sidecar reasoning effort should deserialize");
         assert_eq!(sidecar_event.reasoning_effort.as_deref(), Some("xhigh"));
 
@@ -274,8 +275,9 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             Some("gpt-5.4"),
             Some(CodexLocalAccessGatewayMode::Sidecar),
             CodexLocalAccessRequestKind::Text,
-            None,
+            sidecar_event.service_tier.as_deref(),
             sidecar_event.reasoning_effort.as_deref(),
+            sidecar_event.response_service_tier.as_deref(),
             true,
             Some(200),
             None,
@@ -296,6 +298,19 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             )
             .expect("read request log");
         assert_eq!(loaded.reasoning_effort.as_deref(), Some("xhigh"));
+        assert_eq!(loaded.service_tier.as_deref(), Some("auto"));
+        assert_eq!(loaded.response_service_tier.as_deref(), Some("priority"));
+        assert_eq!(events[0].response_service_tier, loaded.response_service_tier);
+        let wire = serde_json::to_value(&loaded).expect("serialize usage event");
+        assert_eq!(wire["responseServiceTier"], "priority");
+
+        // The paged/statistics read path selects columns explicitly.
+        let mut reloaded = Vec::new();
+        super::for_each_local_access_usage_event_since_from_conn(&conn, 0, |event| {
+            reloaded.push(event);
+            Ok(())
+        }).expect("read event through statistics query");
+        assert_eq!(reloaded[0].response_service_tier.as_deref(), Some("priority"));
 
         drop(conn);
         let _ = fs::remove_dir_all(dir);

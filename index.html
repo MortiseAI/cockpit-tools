@@ -57,6 +57,23 @@
         letter-spacing: 0.02em;
       }
 
+      #app-boot-recovery {
+        max-width: min(560px, 85vw);
+        text-align: center;
+        font-size: 14px;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
+      }
+
+      #app-boot-recovery button {
+        padding: 8px 18px;
+        border: 1px solid currentColor;
+        border-radius: 8px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+
       .app-boot-progress {
         width: min(220px, 56vw);
         height: 4px;
@@ -108,7 +125,7 @@
       }
 
       @media (max-width: 400px) {
-        #app-boot-splash {
+        #app-boot-splash[aria-hidden="true"] {
           display: none !important;
         }
       }
@@ -121,13 +138,20 @@
       <div class="app-boot-progress" data-mode="indeterminate">
         <div class="app-boot-bar" id="app-boot-bar"></div>
       </div>
+      <div id="app-boot-recovery" hidden>
+        <p id="app-boot-message">加载时间较长，请刷新重试。<br />Loading is taking longer than expected. Please refresh to retry.</p>
+        <button type="button" onclick="window.location.reload()">刷新 / Refresh</button>
+      </div>
     </div>
     <div id="root"></div>
     <script>
       window.setTimeout(function () {
         var splash = document.getElementById("app-boot-splash");
-        if (splash) {
-          splash.classList.add("is-hidden");
+        var recovery = document.getElementById("app-boot-recovery");
+        if (splash && recovery && !splash.classList.contains("is-hidden")) {
+          recovery.hidden = false;
+          splash.setAttribute("aria-hidden", "false");
+          splash.setAttribute("role", "alert");
         }
       }, 15000);
     </script>

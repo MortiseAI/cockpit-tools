@@ -644,6 +644,7 @@ async fn record_sidecar_usage_event(event: SidecarUsageEvent) {
             http_status: event.status,
             error_message: event.error_message.as_deref(),
             service_tier: event.service_tier.as_deref(),
+            response_service_tier: event.response_service_tier.as_deref(),
             reasoning_effort: event.reasoning_effort.as_deref(),
         },
     )
@@ -1269,9 +1270,17 @@ fn push_local_access_takeover_dir(
 
 fn collect_local_access_profile_takeover_dirs_from_store(
     store: crate::models::InstanceStore,
+    launch_mode: CodexLocalAccessLaunchMode,
 ) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen = HashSet::new();
+
+    if launch_mode == CodexLocalAccessLaunchMode::GlobalProxy
+        && store.default_settings.bind_account_id.as_deref()
+            .is_some_and(crate::modules::codex_instance::is_api_service_bind_account_id)
+    {
+        push_local_access_takeover_dir(&mut dirs, &mut seen, codex_account::get_codex_home());
+    }
 
     for instance in store.instances {
         let Some(bind_account_id) = instance.bind_account_id.as_deref() else {
@@ -1290,7 +1299,7 @@ fn collect_local_access_profile_takeover_dirs_from_store(
     dirs
 }
 
-fn collect_local_access_profile_takeover_dirs() -> Vec<PathBuf> {
+fn collect_local_access_profile_takeover_dirs(collection: &CodexLocalAccessCollection) -> Vec<PathBuf> {
     let store = match crate::modules::codex_instance::load_instance_store() {
         Ok(store) => store,
         Err(err) => {
@@ -1302,9 +1311,8 @@ fn collect_local_access_profile_takeover_dirs() -> Vec<PathBuf> {
         }
     };
 
-    // The official CLI and Codex App share ~/.codex. API Service attachments are
-    // therefore restricted to explicitly managed, non-default instance homes.
-    collect_local_access_profile_takeover_dirs_from_store(store)
+    // The shared local Codex home is attached only after an explicit global-proxy launch.
+    collect_local_access_profile_takeover_dirs_from_store(store, collection.launch_mode)
 }
 
 async fn ensure_profile_takeover(
@@ -1356,7 +1364,7 @@ async fn ensure_local_access_profile_takeovers(
     collection: &CodexLocalAccessCollection,
 ) -> Result<(), String> {
     let mut failures = Vec::new();
-    for profile_dir in collect_local_access_profile_takeover_dirs() {
+    for profile_dir in collect_local_access_profile_takeover_dirs(collection) {
         if let Err(err) = ensure_profile_takeover(&profile_dir, collection).await {
             failures.push(err);
         }
@@ -1438,7 +1446,7 @@ fn local_access_profile_takeovers_need_websocket_sync(
     collection: &CodexLocalAccessCollection,
 ) -> bool {
     collection.enabled
-        && collect_local_access_profile_takeover_dirs()
+        && collect_local_access_profile_takeover_dirs(collection)
             .iter()
             .any(|profile_dir| {
                 local_access_profile_takeover_needs_websocket_sync(profile_dir, collection)

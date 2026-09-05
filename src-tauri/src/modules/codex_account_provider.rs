@@ -1382,6 +1382,7 @@ fn build_deepseek_direct_provider_catalog_json(
         .map_err(|error| format!("序列化 DeepSeek 模型目录失败: {}", error))
 }
 
+#[cfg(test)]
 fn build_deepseek_official_model_catalog_json(
     selected_models: &[String],
 ) -> Result<String, String> {

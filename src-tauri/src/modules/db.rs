@@ -50,25 +50,6 @@ pub fn is_unusable_sqlite_database_message(message: &str) -> bool {
         || lowered.contains("database disk image is malformed")
 }
 
-/// 注入 Token 到指定数据库路径
-pub fn inject_token_to_path(
-    db_path: &Path,
-    access_token: &str,
-    refresh_token: &str,
-    expiry: i64,
-) -> Result<String, String> {
-    inject_token_to_path_with_metadata(
-        db_path,
-        access_token,
-        refresh_token,
-        expiry,
-        None,
-        None,
-        None,
-        None,
-    )
-}
-
 /// 按账号数据注入 Token 到指定数据库路径。
 pub fn inject_account_token_to_path(db_path: &Path, account: &Account) -> Result<String, String> {
     inject_token_to_path_with_metadata(
@@ -81,17 +62,6 @@ pub fn inject_account_token_to_path(db_path: &Path, account: &Account) -> Result
         Some(account.email.as_str()),
         account.token.project_id.as_deref(),
     )
-}
-
-/// 注入 Token 到 antigravityUnifiedStateSync.oauthToken
-pub fn inject_unified_oauth_token_to_path(
-    db_path: &Path,
-    access_token: &str,
-    refresh_token: &str,
-    expiry: i64,
-) -> Result<(), String> {
-    let conn = Connection::open(db_path).map_err(|e| format!("打开数据库失败: {}", e))?;
-    inject_unified_oauth_token(&conn, access_token, refresh_token, expiry, None, None, None)
 }
 
 fn inject_token_to_path_with_metadata(
@@ -225,20 +195,5 @@ fn clear_enterprise_project_preference(conn: &Connection) -> Result<(), String> 
         ["antigravityUnifiedStateSync.enterprisePreferences"],
     )
     .map_err(|e| format!("清理 Enterprise Preference 失败: {}", e))?;
-    Ok(())
-}
-
-/// 写入 serviceMachineId 到数据库
-pub fn write_service_machine_id(service_machine_id: &str) -> Result<(), String> {
-    let db_path = get_db_path()?;
-    let conn = Connection::open(&db_path).map_err(|e| format!("打开数据库失败: {}", e))?;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
-        ["storage.serviceMachineId", service_machine_id],
-    )
-    .map_err(|e| format!("写入 serviceMachineId 失败: {}", e))?;
-
-    crate::modules::logger::log_info(&format!("serviceMachineId 已写入: {}", service_machine_id));
     Ok(())
 }

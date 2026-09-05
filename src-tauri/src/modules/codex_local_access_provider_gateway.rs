@@ -467,6 +467,7 @@ fn provider_gateway_models_for_account(account: &CodexAccount) -> Vec<String> {
     Vec::new()
 }
 
+#[cfg(test)]
 fn provider_gateway_default_model_for_account(account: &CodexAccount) -> String {
     provider_gateway_models_for_account(account)
         .into_iter()
@@ -2080,6 +2081,7 @@ fn official_catalog_json_for_provider_gateway(account: &CodexAccount) -> Option<
     }
 }
 
+#[cfg(test)]
 fn write_provider_gateway_model_catalog(
     profile_dir: &Path,
     slots: &[ProviderGatewayModelSlot],

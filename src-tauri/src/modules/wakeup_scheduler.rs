@@ -121,7 +121,6 @@ static STARTUP_TRIGGERED: OnceLock<Mutex<bool>> = OnceLock::new();
 struct PendingConfirmation {
     task: WakeupTask,
     trigger_source: String,
-    scheduled_at: i64,
     timeout_at: i64,
 }
 
@@ -1033,7 +1032,6 @@ async fn run_task(app: &AppHandle, task: &WakeupTask, trigger_source: &str) {
         let pending = PendingConfirmation {
             task: task.clone(),
             trigger_source: trigger_source.to_string(),
-            scheduled_at: chrono::Local::now().timestamp(),
             timeout_at,
         };
 

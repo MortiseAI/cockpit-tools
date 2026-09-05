@@ -223,6 +223,7 @@ pub(crate) fn managed_codex_model_ids() -> Vec<String> {
     model_ids
 }
 
+#[cfg(test)]
 pub fn normalize_responses_body_for_codex(body: &mut Value) -> bool {
     normalize_responses_body_for_codex_with_lite(body, false)
 }

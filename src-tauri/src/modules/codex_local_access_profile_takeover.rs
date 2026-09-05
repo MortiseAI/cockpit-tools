@@ -902,8 +902,9 @@ fn restore_takeover_profiles_after_disable(
     let backups = load_takeover_backups()?;
     let default_profile = codex_account::get_codex_home();
     let default_key = normalize_profile_dir_key(&default_profile);
-    let protect_default_profile = account::is_dev_profile();
-    let mut target_profiles = collect_local_access_profile_takeover_dirs()
+    let protect_default_profile = account::is_dev_profile()
+        && collection.launch_mode != CodexLocalAccessLaunchMode::GlobalProxy;
+    let mut target_profiles = collect_local_access_profile_takeover_dirs(collection)
         .into_iter()
         .map(|profile_dir| (normalize_profile_dir_key(&profile_dir), profile_dir))
         .collect::<HashMap<_, _>>();

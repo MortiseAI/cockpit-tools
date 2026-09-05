@@ -4,6 +4,7 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
     let now = now_ms();
     Ok(CodexLocalAccessCollection {
         enabled: false,
+        launch_mode: Default::default(),
         port: allocate_initial_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
         api_key: generate_local_api_key(),
         api_keys: Vec::new(),
@@ -1392,6 +1393,20 @@ pub async fn set_local_access_enabled(enabled: bool) -> Result<CodexLocalAccessS
         restore_takeover_profiles_after_disable(&next_collection)?;
         snapshot_state_without_gateway_reload().await
     }
+}
+
+pub async fn set_local_access_launch_mode(
+    launch_mode: CodexLocalAccessLaunchMode,
+) -> Result<(), String> {
+    ensure_runtime_loaded_without_start().await?;
+    let mut runtime = gateway_runtime().lock().await;
+    let mut collection = runtime.collection.clone()
+        .ok_or_else(|| "本地接入集合尚未创建".to_string())?;
+    collection.launch_mode = launch_mode;
+    collection.updated_at = now_ms();
+    save_collection_to_disk(&collection)?;
+    sync_runtime_collection(&mut runtime, collection);
+    Ok(())
 }
 
 pub async fn detach_local_access_profile(profile_dir: &Path) -> Result<bool, String> {

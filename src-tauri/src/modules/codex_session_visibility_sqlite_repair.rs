@@ -9,18 +9,6 @@ pub(crate) fn normalize_official_thread_cwds(data_dir: &Path) -> Result<usize, S
     Ok(total)
 }
 
-fn count_sqlite_rows_to_update(
-    data_dir: &Path,
-    target_provider: &str,
-) -> Result<SqliteProviderScan, String> {
-    count_sqlite_rows_to_update_for_options(
-        data_dir,
-        target_provider,
-        CodexSessionVisibilityRepairOptions::for_mode(CodexSessionVisibilityRepairMode::Deep),
-        &RepairTargetSelection::default(),
-    )
-}
-
 fn count_sqlite_rows_to_update_for_options(
     data_dir: &Path,
     target_provider: &str,
@@ -227,15 +215,6 @@ fn count_sqlite_rows_to_update_for_db(
         rows_to_update: count.max(0) as usize,
         skipped_unusable_database: false,
     })
-}
-
-fn update_sqlite_provider(data_dir: &Path, target_provider: &str) -> Result<usize, String> {
-    update_sqlite_provider_for_options(
-        data_dir,
-        target_provider,
-        CodexSessionVisibilityRepairOptions::for_mode(CodexSessionVisibilityRepairMode::Deep),
-        &RepairTargetSelection::default(),
-    )
 }
 
 fn update_sqlite_provider_for_options(

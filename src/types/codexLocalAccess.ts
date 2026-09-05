@@ -112,8 +112,11 @@ export interface CodexLocalAccessTimeoutPreset {
   updatedAt: number;
 }
 
+export type CodexLocalAccessLaunchMode = "globalProxy" | "serverOnly";
+
 export interface CodexLocalAccessCollection {
   enabled: boolean;
+  launchMode?: CodexLocalAccessLaunchMode;
   port: number;
   apiKey: string;
   apiKeys: CodexLocalAccessApiKey[];
@@ -257,6 +260,8 @@ export interface CodexLocalAccessUsageEvent {
   gatewayMode?: CodexLocalAccessGatewayMode | null;
   requestKind: CodexLocalAccessRequestKind;
   serviceTier?: string | null;
+  /** Tier reported by the upstream response; absent means unconfirmed. */
+  responseServiceTier?: string | null;
   /** Request reasoning effort (e.g. low/medium/high/xhigh/max), when present. */
   reasoningEffort?: string | null;
   success: boolean;

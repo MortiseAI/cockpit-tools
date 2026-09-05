@@ -4,6 +4,7 @@ import {
   dismissBootSplash,
   resetBootSplashStateForTests,
   setBootSplashStage,
+  showBootSplashError,
 } from "./bootSplash.ts";
 
 function installSplashDom() {
@@ -39,6 +40,8 @@ function installSplashDom() {
     style: { width: "" },
     parentElement: track,
   };
+  const recovery = { hidden: true };
+  const detail = { textContent: "" };
 
   const previousDocument = (globalThis as { document?: unknown }).document;
   const previousSetTimeout = globalThis.setTimeout;
@@ -46,6 +49,8 @@ function installSplashDom() {
     getElementById(id: string) {
       if (id === "app-boot-splash") return splash;
       if (id === "app-boot-bar") return bar;
+      if (id === "app-boot-recovery") return recovery;
+      if (id === "app-boot-message") return detail;
       return null;
     },
   };
@@ -59,6 +64,8 @@ function installSplashDom() {
     splash,
     bar,
     track,
+    recovery,
+    detail,
     timeouts,
     restore() {
       (globalThis as { document?: unknown }).document = previousDocument;
@@ -102,6 +109,37 @@ test("boot splash stages only move forward and page ready dismisses", () => {
     setBootSplashStage("page_ready");
     assert.equal(dom.bar.style.width, "100%");
     assert.match(dom.splash.className, /is-hidden/);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("startup failures remain visible with a literal error message and recovery action", () => {
+  const dom = installSplashDom();
+  try {
+    setBootSplashStage("script_loaded");
+    showBootSplashError("Failed to load <App>");
+    assert.equal(dom.recovery.hidden, false);
+    assert.equal(dom.detail.textContent, "Failed to load <App>");
+    assert.equal(dom.splash.attrs["aria-hidden"], "false");
+    assert.equal(dom.splash.attrs.role, "alert");
+    assert.equal(dom.splash.className, "");
+    assert.equal(dom.timeouts.length, 0);
+
+    setBootSplashStage("page_ready");
+    assert.match(dom.splash.className, /is-hidden/);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("a late startup failure does not cover an already mounted page", () => {
+  const dom = installSplashDom();
+  try {
+    dismissBootSplash();
+    showBootSplashError("late error");
+    assert.equal(dom.recovery.hidden, true);
+    assert.equal(dom.detail.textContent, "");
   } finally {
     dom.restore();
   }

@@ -9,7 +9,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessApiKeyStats, CodexLocalAccessAppendAccountSkipped,
     CodexLocalAccessAppendAccountsResult, CodexLocalAccessChatMessage, CodexLocalAccessChatResult,
     CodexLocalAccessClientBaseUrlHost, CodexLocalAccessCollection,
-    CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode,
+    CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode, CodexLocalAccessLaunchMode,
     CodexLocalAccessImageGenerationMode, CodexLocalAccessImageGenerationPolicy,
     CodexLocalAccessImageGenerationStatus, CodexLocalAccessModelAlias,
     CodexLocalAccessModelPricing, CodexLocalAccessModelRoute, CodexLocalAccessModelRouting,
@@ -2361,6 +2361,7 @@ pub(crate) fn supported_codex_model_ids() -> Vec<String> {
     model_ids
 }
 
+#[cfg(test)]
 fn merge_api_service_experimental_model_ids(
     mut model_ids: Vec<String>,
     experimental_model_ids: &[String],
@@ -2778,6 +2779,7 @@ fn visible_codex_model_ids_for_api_key(
     )
 }
 
+#[cfg(test)]
 fn visible_codex_model_ids_for_api_key_with_accounts(
     collection: &CodexLocalAccessCollection,
     api_key: &ResolvedLocalApiKey,

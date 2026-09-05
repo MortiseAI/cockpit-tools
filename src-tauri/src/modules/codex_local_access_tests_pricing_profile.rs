@@ -501,13 +501,15 @@
             ),
         ];
 
-        let dirs = collect_local_access_profile_takeover_dirs_from_store(store);
+        let dirs = collect_local_access_profile_takeover_dirs_from_store(
+            store, super::CodexLocalAccessLaunchMode::GlobalProxy,
+        );
 
         assert_eq!(dirs, vec![PathBuf::from("/tmp/codex-api-service")]);
     }
 
     #[test]
-    fn takeover_dirs_never_include_default_profile() {
+    fn takeover_dirs_exclude_default_profile_in_server_only_mode() {
         let mut store = InstanceStore::new();
         store.default_settings = DefaultInstanceSettings {
             bind_account_id: Some(
@@ -521,9 +523,35 @@
             Some(crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID),
         )];
 
-        let dirs = collect_local_access_profile_takeover_dirs_from_store(store);
+        let global_dirs = collect_local_access_profile_takeover_dirs_from_store(
+            store.clone(), super::CodexLocalAccessLaunchMode::GlobalProxy,
+        );
+        assert_eq!(
+            global_dirs,
+            vec![
+                crate::modules::codex_account::get_codex_home(),
+                PathBuf::from("/tmp/codex-api-service"),
+            ]
+        );
 
+        let dirs = collect_local_access_profile_takeover_dirs_from_store(
+            store, super::CodexLocalAccessLaunchMode::ServerOnly,
+        );
         assert_eq!(dirs, vec![PathBuf::from("/tmp/codex-api-service")]);
+    }
+
+    #[test]
+    fn local_access_launch_mode_is_explicit_and_persisted() {
+        let collection = test_local_access_collection(Vec::new());
+        let mut legacy = serde_json::to_value(&collection).unwrap();
+        legacy.as_object_mut().unwrap().remove("launchMode");
+        let mut restored: super::CodexLocalAccessCollection = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.launch_mode, super::CodexLocalAccessLaunchMode::ServerOnly);
+        restored.launch_mode = super::CodexLocalAccessLaunchMode::GlobalProxy;
+        let saved = serde_json::to_value(&restored).unwrap();
+        assert_eq!(saved["launchMode"], "globalProxy");
+        let round_trip: super::CodexLocalAccessCollection = serde_json::from_value(saved).unwrap();
+        assert_eq!(round_trip.launch_mode, super::CodexLocalAccessLaunchMode::GlobalProxy);
     }
 
     #[test]
@@ -618,6 +646,7 @@
             CodexLocalAccessRequestKind::Text,
             None,
             None,
+            None,
             false,
             Some(502),
             Some("upstream_bad_gateway"),
@@ -697,6 +726,7 @@
             Some("gpt-5.4"),
             Some(CodexLocalAccessGatewayMode::Sidecar),
             CodexLocalAccessRequestKind::Text,
+            None,
             None,
             None,
             true,
@@ -793,6 +823,29 @@
     }
 
     #[test]
+    fn request_log_db_migrates_response_service_tier_without_guessing_history() {
+        let dir = make_temp_dir("codex-local-access-response-tier-migration");
+        let db_path = dir.join("request_logs.sqlite");
+        let conn = rusqlite::Connection::open(&db_path).expect("open old logs db");
+        conn.execute_batch(
+            "CREATE TABLE request_logs (id INTEGER PRIMARY KEY, event_key TEXT NOT NULL UNIQUE, timestamp INTEGER NOT NULL);
+             INSERT INTO request_logs VALUES (1, 'old-event', 1700000000000);"
+        ).expect("create pre-migration log");
+        drop(conn);
+
+        let conn = open_local_access_logs_db_once(&db_path, true).expect("migrate logs");
+        let event = conn.query_row("SELECT * FROM request_logs", [], usage_event_from_row)
+            .expect("read historical event");
+        assert_eq!(event.timestamp, 1_700_000_000_000);
+        assert_eq!(event.service_tier, None);
+        assert_eq!(event.response_service_tier, None);
+        let wire = serde_json::to_value(event).expect("serialize historical event");
+        assert!(wire.get("responseServiceTier").is_none());
+        drop(conn);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn request_log_reprice_updates_cost_and_pricing_version() {
         let dir = make_temp_dir("codex-local-access-reprice");
         let db_path = dir.join("request_logs.sqlite");
@@ -828,6 +881,7 @@
             Some("custom-model"),
             Some(CodexLocalAccessGatewayMode::Sidecar),
             CodexLocalAccessRequestKind::Text,
+            None,
             None,
             None,
             true,
@@ -928,6 +982,7 @@
                 Some("gpt-5.4"),
                 Some(CodexLocalAccessGatewayMode::Sidecar),
                 CodexLocalAccessRequestKind::Text,
+                None,
                 None,
                 None,
                 true,
@@ -2102,6 +2157,7 @@ supports_websockets = false
                 Some("gpt-5.4"),
                 Some(CodexLocalAccessGatewayMode::Sidecar),
                 CodexLocalAccessRequestKind::Text,
+                None,
                 None,
                 None,
                 true,

@@ -2578,6 +2578,13 @@
       "cardHint": "备注已保存，完成 OAuth 后即可使用"
     },
     "localAccess": {
+      "launchModeLabel": "启动模式",
+      "globalProxyMode": "全局代理",
+      "serverOnlyMode": "仅启动 API 服务",
+      "globalProxyModeHint": "启动 API 服务，并代理本地 Codex App 和 CLI 的请求。",
+      "serverOnlyModeHint": "仅启动 API 服务，不代理本地 Codex；已启用的全局代理会被解除。",
+      "globalProxyEnabled": "全局代理已启用，本地 Codex 已连接 API 服务。",
+      "serverOnlyEnabled": "API 服务已启用，本地 Codex 不使用代理。",
       "title": "API 服务",
       "entryAction": "添加至 API 服务",
       "removeAction": "移除 API 服务",
@@ -4320,7 +4327,16 @@
         "reasoningEffort": "思考强度",
         "reasoningEffortValue": "思考 {{effort}}",
         "serviceTier": "服务等级",
-        "serviceTierValue": "等级 {{tier}}"
+        "serviceTierValue": "等级 {{tier}}",
+        "speedStandard": "标准",
+        "speedAuto": "自动",
+        "speedUnknown": "速度未知",
+        "speedConfirmed": "{{mode}} · 已确认",
+        "speedRequested": "{{mode}} · 请求",
+        "speedNotRecorded": "未记录",
+        "speedFastNotHonored": "已请求 Fast → {{mode}}",
+        "speedDetails": "请求等级：{{requested}}；上游返回：{{reported}}",
+        "speedUnconfirmed": "上游尚未确认实际处理等级，不能据此判断已使用 Fast。"
       }
     },
     "apiKey": {

@@ -393,6 +393,11 @@
   color: var(--primary);
 }
 
+.codex-launch-preview-instance-menu
+  .single-select-dropdown-item + .single-select-dropdown-item {
+  margin-top: 6px;
+}
+
 .codex-launch-preview-instance-menu .single-select-dropdown-item-label {
   overflow-wrap: anywhere;
 }
@@ -1023,4 +1028,11 @@
   .codex-launch-preview-footer-primary {
     justify-content: flex-start;
   }
+}
+
+.codex-launch-preview-mode-hint {
+  margin: 14px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }

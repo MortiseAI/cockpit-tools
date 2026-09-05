@@ -397,20 +397,6 @@ impl CodexQuotaRuntimeSnapshot {
     }
 }
 
-/// 额度查询专用凭据准备：只在 access_token 过期时尝试 Token Authority 刷新。
-/// id_token 临期、8 天保活周期和历史 requires_reauth 标记都不应阻断额度请求。
-pub async fn prepare_account_for_quota_query(account_id: &str) -> Result<CodexAccount, String> {
-    let account = load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
-    if account.is_api_key_auth()
-        || account.is_agent_identity_auth()
-        || account.is_web_session_auth()
-    {
-        return Ok(account);
-    }
-    let runtime_snapshot = CodexQuotaRuntimeSnapshot::capture().await?;
-    prepare_account_for_quota_query_with_runtime_snapshot(account_id, &runtime_snapshot).await
-}
-
 pub(crate) async fn prepare_account_for_quota_query_with_runtime_snapshot(
     account_id: &str,
     runtime_snapshot: &CodexQuotaRuntimeSnapshot,

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 
 	internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
 
@@ -158,8 +159,15 @@ func relayContext(c *gin.Context) context.Context {
 }
 
 func buildExecutorRequest(c *gin.Context, body []byte, model string, sourceFormat sdktranslator.Format, alt string, stream bool) (cliproxyexecutor.Request, cliproxyexecutor.Options) {
+	// Embedded execution bypasses the SDK HTTP handler which normally records
+	// this metadata. Omission means auto, not an explicit standard request.
+	serviceTier := strings.TrimSpace(gjson.GetBytes(body, "service_tier").String())
+	if serviceTier == "" {
+		serviceTier = "auto"
+	}
 	metadata := map[string]any{
 		cliproxyexecutor.RequestedModelMetadataKey: model,
+		cliproxyexecutor.ServiceTierMetadataKey:    serviceTier,
 	}
 	if c != nil && c.Request != nil && c.Request.URL != nil {
 		metadata[cliproxyexecutor.RequestPathMetadataKey] = c.Request.URL.Path

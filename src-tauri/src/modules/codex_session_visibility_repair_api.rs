@@ -97,7 +97,6 @@ pub struct CodexSessionVisibilityRepairProgress {
 #[serde(rename_all = "snake_case")]
 pub enum CodexSessionVisibilityRepairProviderSource {
     Config,
-    Rollout,
     Sqlite,
 }
 
@@ -222,7 +221,6 @@ struct CodexSessionVisibilityRepairOptions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SqliteRepairScope {
-    LegacyStateOnly,
     OfficialStateDbs,
     AllSessionDbs,
 }
@@ -453,20 +451,6 @@ struct SqliteThreadIndexRow {
 
 type ProgressReporter<'a> = Option<&'a dyn Fn(CodexSessionVisibilityRepairProgress)>;
 
-pub fn repair_session_visibility_across_instances(
-) -> Result<CodexSessionVisibilityRepairSummary, String> {
-    repair_session_visibility_across_instances_with_progress(
-        CodexSessionVisibilityRepairMode::Quick,
-        None,
-        None,
-    )
-}
-
-pub fn repair_session_visibility_quick_across_instances(
-) -> Result<CodexSessionVisibilityRepairSummary, String> {
-    repair_session_visibility_auto_across_instances(CodexSessionVisibilityAutoRepairMode::Current)
-}
-
 /// Repairs the launch target only, using the same bounded quick-repair plan as the
 /// automatic multi-instance repair. The caller supplies the already-resolved data
 /// directory so this path never discovers or mutates another configured instance.
@@ -515,60 +499,6 @@ pub fn repair_session_visibility_quick_for_instance(
         )),
     }
     result
-}
-
-pub fn repair_session_visibility_auto_across_instances(
-    mode: CodexSessionVisibilityAutoRepairMode,
-) -> Result<CodexSessionVisibilityRepairSummary, String> {
-    let started = std::time::Instant::now();
-    modules::logger::log_info(&format!(
-        "[Codex Session Visibility] auto repair started: mode={}",
-        mode.label()
-    ));
-    let result = repair_session_visibility_across_instances_with_options(
-        CodexSessionVisibilityRepairOptions::for_auto_repair_mode(mode),
-        None,
-        None,
-        RepairTargetSelection::default(),
-    );
-    match &result {
-        Ok(summary) => modules::logger::log_info(&format!(
-            "[Codex Session Visibility] auto repair finished: mode={}, instances={}, mutated_instances={}, rollout_files={}, sqlite_rows={}, sqlite_timestamp_rows={}, session_index_added={}, session_index_updated={}, metadata_failed={}, elapsed_ms={}",
-            mode.label(),
-            summary.instance_count,
-            summary.mutated_instance_count,
-            summary.changed_rollout_file_count,
-            summary.updated_sqlite_row_count,
-            summary.updated_sqlite_timestamp_row_count,
-            summary.added_session_index_entry_count,
-            summary.updated_session_index_entry_count,
-            summary.metadata_rebuild_failed_count,
-            started.elapsed().as_millis()
-        )),
-        Err(error) => modules::logger::log_warn(&format!(
-            "[Codex Session Visibility] auto repair failed: mode={}, elapsed_ms={}, error={}",
-            mode.label(),
-            started.elapsed().as_millis(),
-            error
-        )),
-    }
-    result
-}
-
-pub fn repair_session_visibility_across_instances_with_progress(
-    mode: CodexSessionVisibilityRepairMode,
-    run_id: Option<String>,
-    progress_reporter: ProgressReporter<'_>,
-) -> Result<CodexSessionVisibilityRepairSummary, String> {
-    repair_session_visibility_across_instances_with_target(
-        mode,
-        run_id,
-        progress_reporter,
-        None,
-        None,
-        None,
-        false,
-    )
 }
 
 pub fn repair_session_visibility_across_instances_with_target(
@@ -1276,6 +1206,7 @@ pub fn read_history_visibility_provider_for_dir(data_dir: &Path) -> Result<Strin
     read_target_provider(data_dir)
 }
 
+#[cfg(test)]
 fn repair_single_instance(
     data_dir: &Path,
     target_provider: &str,

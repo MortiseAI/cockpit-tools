@@ -327,9 +327,7 @@ pub async fn codex_local_access_delete_api_key(
 pub async fn codex_local_access_set_enabled(
     enabled: bool,
 ) -> Result<CodexLocalAccessState, String> {
-    // Starting or stopping the server must not interrupt or mutate the official
-    // default Codex profile. Managed instance attachments are reconciled by the
-    // local-access runtime itself.
+    // Reconcile only the profiles selected by the persisted launch mode.
     codex_local_access::set_local_access_enabled(enabled).await
 }
 
@@ -338,6 +336,7 @@ pub async fn codex_local_access_activate(
     app: AppHandle,
     auto_repair_mode: Option<codex_session_visibility::CodexSessionVisibilityAutoRepairMode>,
     instance_id: Option<String>,
+    launch_mode: Option<CodexLocalAccessLaunchMode>,
 ) -> Result<CodexLocalAccessState, String> {
     let flow_started = Instant::now();
     let target_instance_id = instance_id
@@ -348,21 +347,23 @@ pub async fn codex_local_access_activate(
         .to_string();
     let launch_target =
         crate::commands::codex_instance::resolve_codex_instance_start_target(&target_instance_id)?;
-    if launch_target.is_default {
-        logger::log_info(
-            "[Codex API Service Switch][Backend] 默认 ~/.codex 受保护，仅启动 API 服务",
-        );
-        let state = codex_local_access::set_local_access_enabled(true).await?;
-        let _ = codex_local_access::detach_local_access_profile(&launch_target.user_data_dir).await?;
-        let _ = crate::modules::codex_instance::update_default_settings(
-            Some(None),
-            None,
-            None,
-            Some(true),
-            None,
-            None,
+    if launch_target.is_default
+        && launch_mode.unwrap_or_default() == CodexLocalAccessLaunchMode::ServerOnly
+    {
+        let _profile_lease = codex_account::try_acquire_profile_mutation_lease(
+            &launch_target.user_data_dir, "api-service-server-only",
         )?;
-        return Ok(state);
+        // Persist before enabling so reconciliation cannot reattach the default profile.
+        codex_local_access::set_local_access_launch_mode(CodexLocalAccessLaunchMode::ServerOnly).await?;
+        codex_local_access::detach_local_access_profile(&launch_target.user_data_dir).await?;
+        if launch_target.bind_account_id.as_deref()
+            .is_some_and(crate::modules::codex_instance::is_api_service_bind_account_id)
+        {
+            crate::modules::codex_instance::update_default_settings(
+                Some(None), None, None, Some(true), None, None,
+            )?;
+        }
+        return codex_local_access::set_local_access_enabled(true).await;
     }
     logger::log_info(&format!(
         "[Codex API Service Switch][Backend] codex_local_access_activate started: instance_id={}, user_data_dir={}",
@@ -384,7 +385,7 @@ pub async fn codex_local_access_activate(
         flow_started.elapsed().as_millis()
     ));
     let activate_started = Instant::now();
-    let state = codex_local_access::activate_local_access_for_dir(&codex_home).await?;
+    codex_local_access::activate_local_access_for_dir(&codex_home).await?;
     logger::log_info(&format!(
         "[Codex API Service Switch][Backend] activate_local_access_for_dir finished: elapsed_ms={}, total_ms={}",
         activate_started.elapsed().as_millis(),
@@ -399,28 +400,13 @@ pub async fn codex_local_access_activate(
         flow_started.elapsed().as_millis()
     ));
 
-    let index_started = Instant::now();
-    logger::log_info(&format!(
-        "已保留全局当前 Codex 账号索引，非默认实例激活不影响默认实例: instance_id={}",
-        target_instance_id
-    ));
-    logger::log_info(&format!(
-        "[Codex API Service Switch][Backend] account index stage finished: cleared={}, elapsed_ms={}, total_ms={}",
-        false,
-        index_started.elapsed().as_millis(),
-        flow_started.elapsed().as_millis()
-    ));
-
-    let default_settings_started = Instant::now();
-    logger::log_info(&format!(
-        "已保留非默认实例绑定，不修改 Codex 默认实例: instance_id={}",
-        target_instance_id
-    ));
-    logger::log_info(&format!(
-        "[Codex API Service Switch][Backend] default settings update finished: elapsed_ms={}, total_ms={}",
-        default_settings_started.elapsed().as_millis(),
-        flow_started.elapsed().as_millis()
-    ));
+    if launch_target.is_default {
+        crate::modules::codex_instance::update_default_settings(
+            Some(Some(crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID.to_string())),
+            None, None, Some(false), None, None,
+        )?;
+        codex_local_access::set_local_access_launch_mode(CodexLocalAccessLaunchMode::GlobalProxy).await?;
+    }
     let repair_started = Instant::now();
     repair_codex_session_visibility_after_credential_kind_change(
         "after-api-service-activate",
@@ -497,7 +483,7 @@ pub async fn codex_local_access_activate(
         tray_started.elapsed().as_millis(),
         flow_started.elapsed().as_millis()
     ));
-    Ok(state)
+    codex_local_access::get_local_access_state().await
 }
 
 #[tauri::command]

@@ -152,39 +152,6 @@ async fn sleep_with_cancel(
     Ok(())
 }
 
-pub fn cancel_wakeup_scope(cancel_scope_id: &str) -> Result<(), String> {
-    let cancel_scope_id = cancel_scope_id.trim();
-    if cancel_scope_id.is_empty() {
-        return Ok(());
-    }
-
-    let sender = {
-        let mut scopes = wakeup_cancel_scopes()
-            .lock()
-            .map_err(|_| "唤醒取消状态锁已损坏".to_string())?;
-        scopes.remove(cancel_scope_id)
-    };
-
-    if let Some(sender) = sender {
-        let _ = sender.send(true);
-    }
-
-    Ok(())
-}
-
-pub fn release_wakeup_scope(cancel_scope_id: &str) -> Result<(), String> {
-    let cancel_scope_id = cancel_scope_id.trim();
-    if cancel_scope_id.is_empty() {
-        return Ok(());
-    }
-
-    let mut scopes = wakeup_cancel_scopes()
-        .lock()
-        .map_err(|_| "唤醒取消状态锁已损坏".to_string())?;
-    scopes.remove(cancel_scope_id);
-    Ok(())
-}
-
 fn format_prompt_for_log(prompt: &str) -> String {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {

@@ -21,7 +21,6 @@ const TOKEN_KEEPER_MAX_REFRESHES_PER_PLATFORM: usize = 3;
 const TOKEN_KEEPER_IDLE_SCAN_SECONDS: i64 = 10 * 60;
 const TOKEN_KEEPER_ACTIVE_SCAN_SECONDS: i64 = 60;
 const TOKEN_REFRESH_LEAD_SECONDS: i64 = 15 * 60;
-const TOKEN_REFRESH_LEAD_MILLISECONDS: i64 = TOKEN_REFRESH_LEAD_SECONDS * 1000;
 const REFRESH_FAILURE_BACKOFF_SECONDS: i64 = 15 * 60;
 /// Trae session-expired / mutual-refresh failures need a longer cool-down so we do not
 /// keep hammering ExchangeToken with a rotated-away refresh token.
@@ -141,10 +140,6 @@ fn now_ts() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-fn now_ts_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
-}
-
 fn allow_platform_scan(platform: &'static str) -> bool {
     let now = now_ts();
     let Ok(state) = NEXT_PLATFORM_SCAN_AT.lock() else {
@@ -204,12 +199,6 @@ fn jwt_token_expires_soon(token: &str, skew_seconds: i64) -> bool {
 fn expires_at_seconds_due(expires_at: Option<i64>) -> bool {
     expires_at
         .map(|value| value <= now_ts() + TOKEN_REFRESH_LEAD_SECONDS)
-        .unwrap_or(true)
-}
-
-fn expires_at_milliseconds_due(expires_at: Option<i64>) -> bool {
-    expires_at
-        .map(|value| value <= now_ts_ms() + TOKEN_REFRESH_LEAD_MILLISECONDS)
         .unwrap_or(true)
 }
 

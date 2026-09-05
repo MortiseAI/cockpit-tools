@@ -16,7 +16,6 @@ use crate::modules::logger;
 
 const WINDSURF_AUTH_BASE_URL: &str = "https://www.windsurf.com";
 const WINDSURF_REGISTER_API_BASE_URL: &str = "https://register.windsurf.com";
-const WINDSURF_WEB_BACKEND_API_BASE_URL: &str = "https://web-backend.windsurf.com";
 const WINDSURF_BACKEND_API_BASE_URL: &str = "https://windsurf.com/_backend";
 const WINDSURF_DEVIN_AUTH_BASE_URL: &str = "https://windsurf.com/_devin-auth";
 const WINDSURF_DEFAULT_API_SERVER_URL: &str = "https://server.codeium.com";
@@ -29,8 +28,6 @@ const FIREBASE_API_KEY: &str = "AIzaSyDsOl-1XpT5err0Tcnx8FFod1H8gVGIycY";
 const FIREBASE_SIGN_IN_URL: &str =
     "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword";
 
-const POST_AUTH_METHOD_PATH: &str =
-    "/exa.seat_management_pb.SeatManagementService/WindsurfPostAuth";
 const GET_PLAN_STATUS_METHOD_PATH: &str =
     "/exa.seat_management_pb.SeatManagementService/GetPlanStatus";
 
@@ -1641,154 +1638,6 @@ async fn detect_password_auth_method(
     };
 
     Ok((resolved, has_password))
-}
-
-async fn login_with_auth1_password(email: &str, password: &str) -> Result<String, String> {
-    let url = format!("{}/password/login", WINDSURF_DEVIN_AUTH_BASE_URL);
-    let body = json!({
-        "email": email,
-        "password": password
-    });
-    let client = reqwest::Client::new();
-    let response = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json")
-        .header("User-Agent", APP_USER_AGENT)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Devin Auth 登录请求失败: {}", e))?;
-
-    let status = response.status();
-    let body_text = response
-        .text()
-        .await
-        .unwrap_or_else(|_| "<no-body>".to_string());
-    if !status.is_success() {
-        if status.as_u16() == 401 || status.as_u16() == 403 {
-            return Err("邮箱或密码错误".to_string());
-        }
-        let detail =
-            parse_error_message_from_body_text(&body_text).unwrap_or_else(|| body_text.clone());
-        return Err(format!(
-            "Devin Auth 登录失败: HTTP {}{}",
-            status.as_u16(),
-            if detail.is_empty() {
-                String::new()
-            } else {
-                format!(" ({})", detail)
-            }
-        ));
-    }
-
-    let parsed: Value = serde_json::from_str(&body_text)
-        .map_err(|e| format!("解析 Devin Auth 登录响应失败: {}", e))?;
-    pick_string_from_object(Some(&parsed), &["token"])
-        .ok_or_else(|| "Devin Auth 响应缺少 token".to_string())
-}
-
-fn pick_auth1_org_id(payload: &Value) -> Option<String> {
-    let orgs = payload.get("orgs")?.as_array()?;
-    let preferred = orgs.iter().find(|org| {
-        let Some(obj) = org.as_object() else {
-            return false;
-        };
-        if !pick_string_from_object(Some(org), &["id"])
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false)
-        {
-            return false;
-        }
-        obj.get("primary").and_then(Value::as_bool).unwrap_or(false)
-            || obj
-                .get("isPrimary")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            || obj.get("isAdmin").and_then(Value::as_bool).unwrap_or(false)
-    });
-    let fallback = orgs.iter().find(|org| {
-        pick_string_from_object(Some(org), &["id"])
-            .map(|value| !value.trim().is_empty())
-            .unwrap_or(false)
-    });
-    preferred
-        .and_then(|org| pick_string_from_object(Some(org), &["id"]))
-        .or_else(|| fallback.and_then(|org| pick_string_from_object(Some(org), &["id"])))
-}
-
-async fn request_auth1_session(auth1_token: &str, org_id: &str) -> Result<Value, String> {
-    let url = format!(
-        "{}{}",
-        WINDSURF_WEB_BACKEND_API_BASE_URL, POST_AUTH_METHOD_PATH
-    );
-    let body = json!({
-        "auth1Token": auth1_token,
-        "orgId": org_id
-    });
-    let client = reqwest::Client::new();
-    let response = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .header("Accept", "application/json")
-        .header("Connect-Protocol-Version", "1")
-        .header("User-Agent", APP_USER_AGENT)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("WindsurfPostAuth 请求失败: {}", e))?;
-
-    let status = response.status();
-    let body_text = response
-        .text()
-        .await
-        .unwrap_or_else(|_| "<no-body>".to_string());
-    if !status.is_success() {
-        let detail =
-            parse_error_message_from_body_text(&body_text).unwrap_or_else(|| body_text.clone());
-        return Err(format!(
-            "WindsurfPostAuth 失败: HTTP {}{}",
-            status.as_u16(),
-            if detail.is_empty() {
-                String::new()
-            } else {
-                format!(" ({})", detail)
-            }
-        ));
-    }
-    serde_json::from_str(&body_text).map_err(|e| format!("解析 WindsurfPostAuth 响应失败: {}", e))
-}
-
-async fn exchange_auth1_for_session(
-    auth1_token: &str,
-) -> Result<(String, Option<String>, Option<String>), String> {
-    let first = request_auth1_session(auth1_token, "").await?;
-    let first_session = pick_string_from_object(Some(&first), &["sessionToken", "session_token"]);
-    let first_account_id = pick_string_from_object(Some(&first), &["accountId", "account_id"]);
-    let first_primary_org_id =
-        pick_string_from_object(Some(&first), &["primaryOrgId", "primary_org_id"]);
-    if let Some(session_token) = first_session {
-        return Ok((session_token, first_account_id, first_primary_org_id));
-    }
-
-    let retry_org_id = pick_auth1_org_id(&first);
-    if let Some(org_id) = retry_org_id {
-        let second = request_auth1_session(auth1_token, &org_id).await?;
-        let second_session =
-            pick_string_from_object(Some(&second), &["sessionToken", "session_token"]);
-        if let Some(session_token) = second_session {
-            return Ok((
-                session_token,
-                pick_string_from_object(Some(&second), &["accountId", "account_id"])
-                    .or(first_account_id),
-                pick_string_from_object(Some(&second), &["primaryOrgId", "primary_org_id"])
-                    .or(first_primary_org_id)
-                    .or(Some(org_id)),
-            ));
-        }
-    }
-
-    Err("WindsurfPostAuth 未返回 sessionToken".to_string())
 }
 
 fn parse_proto_fields(

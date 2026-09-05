@@ -29,6 +29,7 @@ const OAUTH_TIMEOUT_SECONDS: i64 = 10 * 60;
 const OFFICIAL_HOSTED_AUTH_ENDPOINT: &str = "https://chatgpt.com/codex/desktop-auth";
 const OFFICIAL_CLIENT_IDENTITY_FILE: &str = "codex-official-client-identity.txt";
 const TOKEN_REFRESH_SKEW_SECONDS: i64 = 300;
+#[cfg(test)]
 pub const ID_TOKEN_REFRESH_LEAD_SECONDS: i64 = 10 * 60;
 const TOKEN_REFRESH_TIMEOUT: Duration = Duration::from_secs(25);
 const DEVICE_USER_CODE_ENDPOINT: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
@@ -1328,6 +1329,7 @@ pub fn is_id_token_expired(id_token: &str) -> bool {
     is_jwt_token_expired(id_token.trim())
 }
 
+#[cfg(test)]
 pub fn is_id_token_refresh_due(id_token: &str) -> bool {
     let Some(exp) = jwt_token_expiration_timestamp(id_token.trim()) else {
         return true;

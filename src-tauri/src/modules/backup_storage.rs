@@ -14,6 +14,7 @@ use std::time::SystemTime;
 
 use crate::modules::{account, codex_account, codex_instance, config};
 
+#[cfg(not(test))]
 const DEFAULT_BACKUP_DIR_NAME: &str = "backups";
 const BEHAVIOR_DIR_NAME: &str = "behavior";
 const MIGRATION_STAGING_PREFIX: &str = ".cockpit-backup-migration-";

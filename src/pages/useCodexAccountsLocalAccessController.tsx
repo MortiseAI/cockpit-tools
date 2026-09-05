@@ -17,8 +17,7 @@ import { DEFAULT_CODEX_INSTANCE_ID } from "../components/codex/CodexLaunchPrevie
 import type { MultiSelectFilterOption } from "../components/MultiSelectFilterDropdown";
 import type { SingleSelectFilterOption } from "../components/SingleSelectFilterDropdown";
 import type { CodexAccount } from "../types/codex";
-import type { CodexLocalAccessAddressKind, CodexLocalAccessCustomRoutingRule, CodexLocalAccessImageGenerationPolicy, CodexLocalAccessRoutingStrategy, CodexLocalAccessScope } from "../types/codexLocalAccess";
-import { CODEX_API_SERVICE_BIND_ID } from "../types/instance";
+import type { CodexLocalAccessLaunchMode, CodexLocalAccessAddressKind, CodexLocalAccessCustomRoutingRule, CodexLocalAccessImageGenerationPolicy, CodexLocalAccessRoutingStrategy, CodexLocalAccessScope } from "../types/codexLocalAccess";
 import { buildCodexOverviewGroupFilterOptions, buildCodexOverviewSortOptions, buildCodexPlanFilterOptions, createCodexOverviewAccountComparator, createCodexPlanFilterCounts, filterAndSortCodexOverviewAccounts, incrementCodexPlanFilterCount, isCodexOverviewAccountAbnormal, isCodexOverviewAccountSubscriptionExpired, isCodexOverviewAccountZeroQuota } from "../utils/codexAccountOverview";
 import { summarizeCodexQuotaPool } from "../utils/codexQuotaPool";
 import { buildValidAccountsFilterOption } from "../utils/accountValidityFilter";
@@ -50,7 +49,6 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
   | "groupDeleteConfirm"
   | "groupFilter"
   | "groupQuickAddGroupId"
-  | "launchPreviewInstanceId"
   | "localAccessAddressKind"
   | "localAccessCollection"
   | "localAccessHealthActionBusy"
@@ -127,7 +125,6 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
     groupDeleteConfirm,
     groupFilter,
     groupQuickAddGroupId,
-    launchPreviewInstanceId,
     localAccessAddressKind,
     localAccessCollection,
     localAccessHealthActionBusy,
@@ -1733,32 +1730,12 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
       async (options?: {
         showSuccessMessage?: boolean;
         instanceId?: string | null;
+        launchMode?: CodexLocalAccessLaunchMode;
       }) => {
         if (!localAccessCollection) {
           throw new Error(
             t("codex.localAccess.testUnavailable", "当前 API 服务地址不可用"),
           );
-        }
-        if (!localAccessCollection.enabled) {
-          const confirmedEnableAndSwitch = await confirmDialog(
-            t(
-              "codex.localAccess.enableBeforeActivateMessage",
-              "API 服务当前未启用，需要先启用服务。是否启用并切号？",
-            ),
-            {
-              title: t(
-                "codex.localAccess.enableBeforeActivateTitle",
-                "服务未启用",
-              ),
-              kind: "warning",
-              okLabel: t(
-                "codex.localAccess.enableAndActivateAction",
-                "启用并切号",
-              ),
-              cancelLabel: t("common.cancel", "取消"),
-            },
-          );
-          if (!confirmedEnableAndSwitch) return;
         }
         const confirmed = await requestLocalAccessRiskNotice("service");
         if (!confirmed) return;
@@ -1769,9 +1746,11 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
           const nextState =
             await codexLocalAccessService.activateCodexLocalAccess(
               options?.instanceId,
+              options?.launchMode,
             );
           setLocalAccessState(nextState);
-          setLocalAccessLaunchCurrent(false);
+          setLocalAccessLaunchCurrent(Boolean(nextState.defaultProfile?.attached));
+          await codexInstanceStore.fetchInstances();
           if (options?.showSuccessMessage ?? true) {
             setMessage({
               text:
@@ -1781,7 +1760,9 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
                       "codex.localAccess.managedInstanceActivated",
                       "API 服务已通过独立实例启动，默认 Codex 未受影响。",
                     )
-                  : t(
+                  : options?.launchMode === "globalProxy"
+                    ? t("codex.localAccess.globalProxyEnabled", "全局代理已启用，本地 Codex 已连接 API 服务。")
+                    : t(
                       "codex.localAccess.serverOnlyEnabled",
                       "API 服务已启用，默认 ~/.codex 和官方 Codex App 未被接管。",
                     ),
@@ -1798,6 +1779,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
         }
       },
       [
+        codexInstanceStore,
         localAccessCollection,
         requestLocalAccessRiskNotice,
         setMessage,
@@ -1832,19 +1814,11 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
     }, [handleToggleLocalAccessEnabled, setMessage, t]);
   
     const handleExecuteLocalAccessLaunchPreview =
-      useCallback(async (): Promise<boolean> => {
-        const activateSelectedTarget = async () => {
-          if (launchPreviewInstanceId !== DEFAULT_CODEX_INSTANCE_ID) {
-            await codexInstanceStore.updateInstance({
-              instanceId: launchPreviewInstanceId,
-              bindAccountId: CODEX_API_SERVICE_BIND_ID,
-              deferBindAccountApplication: true,
-            });
-          }
-          return await handleActivateLocalAccess({
-            instanceId: launchPreviewInstanceId,
-          });
-        };
+      useCallback(async (_launchAfterSwitch: boolean, launchMode: CodexLocalAccessLaunchMode = "serverOnly"): Promise<boolean> => {
+        const activateSelectedTarget = () => handleActivateLocalAccess({
+          instanceId: DEFAULT_CODEX_INSTANCE_ID,
+          launchMode,
+        });
         try {
           const state = await activateSelectedTarget();
           if (!state) {
@@ -1868,12 +1842,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
           }
           throw error;
         }
-      }, [
-        codexInstanceStore,
-        handleActivateLocalAccess,
-        launchPreviewInstanceId,
-        t,
-      ]);
+      }, [handleActivateLocalAccess, t]);
   
     const handleQuickRefreshLocalAccessQuota = useCallback(async () => {
       if (!localAccessCollection) return;

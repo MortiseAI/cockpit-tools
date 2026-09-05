@@ -7,6 +7,7 @@ import type {
   CodexLocalAccessAppendAccountsResult,
   CodexLocalAccessClientBaseUrlHost,
   CodexLocalAccessGatewayMode,
+  CodexLocalAccessLaunchMode,
   CodexLocalAccessModelAlias,
   CodexLocalAccessAccountWindowQuery,
   CodexLocalAccessAccountWindowStats,
@@ -321,6 +322,7 @@ export async function setCodexLocalAccessEnabled(
 
 export async function activateCodexLocalAccess(
   instanceId?: string | null,
+  launchMode?: CodexLocalAccessLaunchMode,
 ): Promise<CodexLocalAccessState> {
   const startedAt = performance.now();
   console.info("[Codex API Service Switch][Service] invoke codex_local_access_activate started");
@@ -328,6 +330,7 @@ export async function activateCodexLocalAccess(
     return await invoke("codex_local_access_activate", {
       autoRepairMode: null,
       instanceId: instanceId ?? null,
+      launchMode: launchMode ?? null,
     });
   } finally {
     console.info(

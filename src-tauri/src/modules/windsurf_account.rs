@@ -1101,19 +1101,6 @@ fn windsurf_state_db_candidates() -> Result<Vec<PathBuf>, String> {
     })
 }
 
-pub fn get_default_state_db_path() -> Result<PathBuf, String> {
-    let candidates = windsurf_state_db_candidates()?;
-    for path in &candidates {
-        if path.is_file() {
-            return Ok(path.clone());
-        }
-    }
-    candidates
-        .into_iter()
-        .next()
-        .ok_or_else(|| "未找到 Devin/Windsurf 本地 state.vscdb 候选路径".to_string())
-}
-
 pub fn read_local_auth_status() -> Result<Option<Value>, String> {
     let candidates = windsurf_state_db_candidates()?;
     let mut last_err: Option<String> = None;

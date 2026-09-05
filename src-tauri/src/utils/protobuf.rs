@@ -80,11 +80,6 @@ pub fn skip_field(data: &[u8], offset: usize, wire_type: u8) -> Result<usize, St
     }
 }
 
-/// 创建 OAuthTokenInfo 消息
-pub fn create_oauth_info(access_token: &str, refresh_token: &str, expiry: i64) -> Vec<u8> {
-    create_oauth_info_with_metadata(access_token, refresh_token, expiry, None, None, None)
-}
-
 /// 创建包含官方客户端登录态元数据的 OAuthTokenInfo 消息
 pub fn create_oauth_info_with_metadata(
     access_token: &str,

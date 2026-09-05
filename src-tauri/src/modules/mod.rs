@@ -94,6 +94,8 @@ pub mod test_support;
 pub mod trae_account;
 pub mod trae_instance;
 pub mod trae_oauth;
+// Session sharing is disabled until encrypted Trae chat bodies can be migrated safely.
+#[cfg(test)]
 pub mod trae_session_transfer;
 pub mod tray;
 pub mod tray_layout;

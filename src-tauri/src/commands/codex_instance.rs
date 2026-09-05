@@ -1714,7 +1714,7 @@ fn windows_terminal_available() -> bool {
     }
 }
 
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg(target_os = "windows")]
 fn windows_terminal_available_on_paths(path: Option<std::ffi::OsString>) -> bool {
     #[cfg(target_os = "windows")]
     {

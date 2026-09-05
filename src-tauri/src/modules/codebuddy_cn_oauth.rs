@@ -652,30 +652,6 @@ pub async fn fetch_payment_type(
     Ok(body)
 }
 
-pub async fn fetch_user_resource_with_access_token(
-    access_token: &str,
-    uid: Option<&str>,
-    enterprise_id: Option<&str>,
-    domain: Option<&str>,
-    product_code: &str,
-    status: &[i32],
-    package_end_time_range_begin: &str,
-    package_end_time_range_end: &str,
-    page_number: i32,
-    page_size: i32,
-) -> Result<Value, String> {
-    let _ = (
-        product_code,
-        status,
-        package_end_time_range_begin,
-        package_end_time_range_end,
-        page_number,
-        page_size,
-    );
-    let body = build_user_resource_request_body();
-    post_user_resource(access_token, uid, enterprise_id, domain, body).await
-}
-
 async fn post_user_resource(
     access_token: &str,
     uid: Option<&str>,

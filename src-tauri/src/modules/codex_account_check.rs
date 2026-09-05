@@ -1,19 +1,11 @@
 // Codex 账号模块：Official account-check request and response validation。
 // 通过 include! 保持原 modules::codex_account 作用域，完整保留私有调用关系。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CodexAccountCheckErrorKind {
-    Unauthorized,
-    Forbidden,
-    Network,
-    InvalidResponse,
-}
-
 #[derive(Debug)]
 struct CodexAccountCheckError {
-    kind: CodexAccountCheckErrorKind,
     message: String,
 }
 
+#[cfg(test)]
 fn account_check_candidate_ids(payload: &serde_json::Value) -> HashSet<String> {
     let mut ids = HashSet::new();
     if let Some(ordering) = payload
@@ -68,6 +60,7 @@ fn account_check_candidate_ids(payload: &serde_json::Value) -> HashSet<String> {
     ids
 }
 
+#[cfg(test)]
 fn validate_account_check_payload(
     payload: &serde_json::Value,
     account: &CodexAccount,
@@ -76,7 +69,6 @@ fn validate_account_check_payload(
     let candidate_ids = account_check_candidate_ids(payload);
     if records.is_empty() && candidate_ids.is_empty() {
         return Err(CodexAccountCheckError {
-            kind: CodexAccountCheckErrorKind::InvalidResponse,
             message: "官方账号检查接口未返回可用账号信息".to_string(),
         });
     }
@@ -87,7 +79,6 @@ fn validate_account_check_payload(
     if let Some(expected_account_id) = expected_account_id {
         if !candidate_ids.is_empty() && !candidate_ids.contains(&expected_account_id) {
             return Err(CodexAccountCheckError {
-                kind: CodexAccountCheckErrorKind::Unauthorized,
                 message: format!(
                     "官方账号检查结果与目标账号不一致: expected_account_id={}, returned_account_count={}",
                     expected_account_id,
@@ -107,7 +98,6 @@ fn validate_account_check_payload(
                 == Some(false)
             {
                 return Err(CodexAccountCheckError {
-                    kind: CodexAccountCheckErrorKind::Forbidden,
                     message: format!(
                         "官方账号检查结果不允许当前登录态访问目标账号: account_id={}",
                         expected_account_id
@@ -123,7 +113,6 @@ fn validate_account_check_payload(
             {
                 if returned_account_id != expected_account_id {
                     return Err(CodexAccountCheckError {
-                        kind: CodexAccountCheckErrorKind::Unauthorized,
                         message: format!(
                             "官方账号检查结果与目标账号不一致: expected_account_id={}, returned_account_id={}",
                             expected_account_id, returned_account_id
@@ -142,7 +131,6 @@ async fn request_remote_account_check(
     let access_token = account.tokens.access_token.trim();
     if access_token.is_empty() {
         return Err(CodexAccountCheckError {
-            kind: CodexAccountCheckErrorKind::Unauthorized,
             message: "access_token 为空，无法执行官方账号检查".to_string(),
         });
     }
@@ -151,7 +139,6 @@ async fn request_remote_account_check(
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| CodexAccountCheckError {
-            kind: CodexAccountCheckErrorKind::Network,
             message: format!("创建官方账号检查客户端失败: {}", error),
         })?;
     let mut headers = HeaderMap::new();
@@ -159,7 +146,6 @@ async fn request_remote_account_check(
         AUTHORIZATION,
         HeaderValue::from_str(&format!("Bearer {}", access_token)).map_err(|error| {
             CodexAccountCheckError {
-                kind: CodexAccountCheckErrorKind::InvalidResponse,
                 message: format!("构建 Authorization 头失败: {}", error),
             }
         })?,
@@ -172,7 +158,6 @@ async fn request_remote_account_check(
         headers.insert(
             "ChatGPT-Account-Id",
             HeaderValue::from_str(&account_id).map_err(|error| CodexAccountCheckError {
-                kind: CodexAccountCheckErrorKind::InvalidResponse,
                 message: format!("构建 ChatGPT-Account-Id 头失败: {}", error),
             })?,
         );
@@ -184,7 +169,6 @@ async fn request_remote_account_check(
         .send()
         .await
         .map_err(|error| CodexAccountCheckError {
-            kind: CodexAccountCheckErrorKind::Network,
             message: format!("官方账号检查请求失败: {}", error),
         })?;
     let status = response.status();
@@ -192,18 +176,11 @@ async fn request_remote_account_check(
         .text()
         .await
         .map_err(|error| CodexAccountCheckError {
-            kind: CodexAccountCheckErrorKind::Network,
             message: format!("读取官方账号检查响应失败: {}", error),
         })?;
 
     if !status.is_success() {
-        let kind = match status.as_u16() {
-            401 => CodexAccountCheckErrorKind::Unauthorized,
-            403 => CodexAccountCheckErrorKind::Forbidden,
-            _ => CodexAccountCheckErrorKind::InvalidResponse,
-        };
         return Err(CodexAccountCheckError {
-            kind,
             message: format!(
                 "官方账号检查接口返回错误: status={}, body_len={}",
                 status,
@@ -213,7 +190,6 @@ async fn request_remote_account_check(
     }
 
     serde_json::from_str(&body).map_err(|error| CodexAccountCheckError {
-        kind: CodexAccountCheckErrorKind::InvalidResponse,
         message: format!("官方账号检查响应 JSON 解析失败: {}", error),
     })
 }
@@ -230,4 +206,3 @@ async fn fetch_remote_account_profile(
         .map_err(|error| error.message)?;
     Ok(parse_account_profile_from_check_response(&payload, account))
 }
-

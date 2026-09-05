@@ -8,15 +8,14 @@ import {
   markFrontendReady,
   recordFrontendStage,
 } from "./utils/errorReporter";
-import { setBootSplashStage } from "./utils/bootSplash";
+import { setBootSplashStage, showBootSplashError } from "./utils/bootSplash";
 import { hydrateUiPreferences } from "./utils/uiPreferences";
 
 initErrorReporter();
 recordFrontendStage("script_loaded");
 setBootSplashStage("script_loaded");
-void initI18n();
 
-void hydrateUiPreferences().then(async () => {
+void Promise.all([initI18n(), hydrateUiPreferences()]).then(async () => {
   const { default: App } = await import("./App");
 
   const rootElement = document.getElementById("root");
@@ -39,4 +38,7 @@ void hydrateUiPreferences().then(async () => {
     setBootSplashStage("react_mounted");
     markFrontendReady("react_mounted");
   });
+}).catch((error: unknown) => {
+  captureError(error, { source: "frontend_boot", phase: "startup" });
+  showBootSplashError(error instanceof Error ? error.message : String(error));
 });

@@ -1,10 +1,15 @@
 use crate::models::codex::CodexAccount;
 use crate::modules::{codex_account, codex_local_access, logger};
 use base64::{engine::general_purpose, Engine as _};
-use ed25519_dalek::{pkcs8::DecodePrivateKey, pkcs8::EncodePrivateKey, Signer, SigningKey};
+#[cfg(test)]
+use ed25519_dalek::pkcs8::EncodePrivateKey;
+use ed25519_dalek::{pkcs8::DecodePrivateKey, Signer, SigningKey};
+#[cfg(test)]
 use rand::{rngs::OsRng, RngCore};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(test)]
+use serde::Serialize;
 use sha2::{Digest, Sha512};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
@@ -12,10 +17,14 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 pub(crate) const AGENT_IDENTITY_AUTH_API_BASE_URL: &str = "https://auth.openai.com/api/accounts";
+#[cfg(test)]
 const AGENT_IDENTITY_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(15);
 const AGENT_IDENTITY_TASK_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
 const AGENT_IDENTITY_REGISTRATION_ATTEMPTS: usize = 3;
+#[cfg(test)]
 const AGENT_IDENTITY_KEY_SEED_BYTES: usize = 64;
+#[cfg(test)]
 const AGENT_IDENTITY_KEY_DERIVATION_CONTEXT: &[u8] = b"codex-agent-identity-ed25519-v1";
 
 static AGENT_IDENTITY_TASK_LOCKS: OnceLock<StdMutex<HashMap<String, Arc<Mutex<()>>>>> =
@@ -40,6 +49,7 @@ struct AgentIdentityTaskRegistrationResponse {
     encrypted_task_id_camel: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 struct AgentIdentityBillOfMaterials {
     agent_version: String,
@@ -47,6 +57,7 @@ struct AgentIdentityBillOfMaterials {
     running_location: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 struct AgentIdentityRegistrationRequest {
     abom: AgentIdentityBillOfMaterials,
@@ -55,26 +66,31 @@ struct AgentIdentityRegistrationRequest {
     ttl: Option<u64>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize)]
 struct AgentIdentityRegistrationResponse {
     agent_runtime_id: String,
 }
 
+#[cfg(test)]
 struct GeneratedAgentIdentityKeyMaterial {
     private_key_pkcs8_base64: String,
     public_key_ssh: String,
 }
 
+#[cfg(test)]
 pub(crate) struct RegisteredAgentIdentity {
     pub agent_runtime_id: String,
     pub agent_private_key: String,
 }
 
+#[cfg(test)]
 struct AgentIdentityRegistrationAttemptError {
     message: String,
     retryable: bool,
 }
 
+#[cfg(test)]
 fn append_ssh_string(target: &mut Vec<u8>, value: &[u8]) -> Result<(), String> {
     let len =
         u32::try_from(value.len()).map_err(|_| "Agent Identity SSH 公钥字段过长".to_string())?;
@@ -83,6 +99,7 @@ fn append_ssh_string(target: &mut Vec<u8>, value: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn encode_ssh_ed25519_public_key(signing_key: &SigningKey) -> Result<String, String> {
     let verifying_key = signing_key.verifying_key();
     let mut blob = Vec::with_capacity(4 + 11 + 4 + 32);
@@ -94,6 +111,7 @@ fn encode_ssh_ed25519_public_key(signing_key: &SigningKey) -> Result<String, Str
     ))
 }
 
+#[cfg(test)]
 fn generate_agent_identity_key_material() -> Result<GeneratedAgentIdentityKeyMaterial, String> {
     let mut seed_material = [0u8; AGENT_IDENTITY_KEY_SEED_BYTES];
     OsRng.fill_bytes(&mut seed_material);
@@ -113,6 +131,7 @@ fn generate_agent_identity_key_material() -> Result<GeneratedAgentIdentityKeyMat
     })
 }
 
+#[cfg(test)]
 async fn register_agent_identity_once(
     client: &reqwest::Client,
     url: &str,
@@ -182,6 +201,7 @@ async fn register_agent_identity_once(
     Ok(runtime_id)
 }
 
+#[cfg(test)]
 pub(crate) async fn register_agent_identity_with_base_url(
     access_token: &str,
     is_fedramp_account: bool,

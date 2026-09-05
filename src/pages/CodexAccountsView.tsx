@@ -5,7 +5,6 @@ import { CodexOverviewTabsHeader } from "../components/CodexOverviewTabsHeader";
 import { CodexInstancesContent } from "./CodexInstancesPage";
 import {
   CodexLaunchPreviewModal,
-  DEFAULT_CODEX_INSTANCE_ID,
 } from "../components/codex/CodexLaunchPreviewModal";
 import { CodexSessionManager } from "../components/codex/CodexSessionManager";
 import { CodexCliLaunchDialog } from "../components/codex/CodexCliLaunchDialog";
@@ -830,27 +829,7 @@ export function CodexAccountsView(props: CodexAccountsViewProps) {
           accountMetaLabel={t("codex.apiSwitchNotice.type.apiKey", "API 密钥")}
           summary={buildLocalAccessLaunchPreviewSummary()}
           actions={buildLocalAccessLaunchPreviewActions()}
-          instanceId={launchPreviewInstanceId}
-          instanceLabel={
-            launchPreviewInstanceId === DEFAULT_CODEX_INSTANCE_ID
-              ? t(
-                  "codex.localAccess.serverOnlyTarget",
-                  "仅启动服务（不接管默认 Codex）",
-                )
-              : launchPreviewInstanceLabel
-          }
-          instanceOptions={launchPreviewInstanceOptions.map((option) =>
-            option.value === DEFAULT_CODEX_INSTANCE_ID
-              ? {
-                  ...option,
-                  label: t(
-                    "codex.localAccess.serverOnlyTarget",
-                    "仅启动服务（不接管默认 Codex）",
-                  ),
-                }
-              : option,
-          )}
-          onInstanceChange={setLaunchPreviewInstanceId}
+          initialApiServiceLaunchMode={localAccessCollection?.launchMode}
           mode="apiService"
           onClose={() => setLocalAccessLaunchPreviewOpen(false)}
           onExecute={handleExecuteLocalAccessLaunchPreview}

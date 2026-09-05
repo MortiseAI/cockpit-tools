@@ -1060,6 +1060,16 @@ fn normalize_proxy_service_tier(value: &str) -> Option<&'static str> {
     }
 }
 
+// Keep auto and future tier names in diagnostics without changing pricing rules.
+fn normalize_recorded_service_tier(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(normalize_proxy_service_tier(value).unwrap_or(value))
+    }
+}
+
 /// Values safe to inject into upstream / sidecar payloads as an explicit default.
 /// Omits standard/default so we do not force a service_tier field when the app
 /// is running at normal speed (matches previous inject behavior).
@@ -1929,6 +1939,7 @@ fn build_chat_chunk_template(
     template
 }
 
+#[cfg(test)]
 fn build_chat_completion_stream_body(
     upstream_body: &[u8],
     original_request_body: &[u8],

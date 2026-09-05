@@ -58,7 +58,6 @@ const SEC_CH_UA: &str = r#""Google Chrome";v="147", "Not.A/Brand";v="8", "Chromi
 pub struct DevinPasswordLoginResult {
     pub auth1_token: String,
     pub user_id: Option<String>,
-    pub email: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -116,7 +115,6 @@ fn build_client() -> Result<Client, String> {
 struct PasswordLoginResponse {
     token: Option<String>,
     user_id: Option<String>,
-    email: Option<String>,
 }
 
 /// 协议级邮密登录（无 OTP、无浏览器）。返回 auth1_token。
@@ -196,7 +194,6 @@ pub async fn login_with_password(
     Ok(DevinPasswordLoginResult {
         auth1_token: auth1,
         user_id: parsed.user_id,
-        email: parsed.email,
     })
 }
 

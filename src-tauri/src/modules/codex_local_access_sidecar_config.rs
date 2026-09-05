@@ -143,6 +143,8 @@ struct SidecarUsageEvent {
     #[serde(default)]
     #[serde(alias = "service_tier")]
     service_tier: Option<String>,
+    #[serde(default, alias = "response_service_tier")]
+    response_service_tier: Option<String>,
     #[serde(default)]
     #[serde(alias = "reasoning_effort")]
     reasoning_effort: Option<String>,
@@ -1696,6 +1698,7 @@ fn resolve_sidecar_upstream_base_url_with(
     None
 }
 
+#[cfg(test)]
 fn sidecar_codex_key_config_value(
     account: &CodexAccount,
     collection: &CodexLocalAccessCollection,
@@ -1945,6 +1948,12 @@ fn format_upstream_response_failed_error(signal: &UpstreamResponseFailedSignal) 
     )
 }
 
+// The sidecar is the only production gateway. Keep the former entry point type-checked
+// together with the protocol implementation exercised by the regression tests.
+#[expect(
+    dead_code,
+    reason = "Retained legacy gateway reference for protocol regression tests"
+)]
 async fn start_legacy_gateway_locked(
     collection: &CodexLocalAccessCollection,
 ) -> Result<(), String> {

@@ -53,12 +53,7 @@ pub struct CodexSessionRecord {
     pub location_count: usize,
     pub locations: Vec<CodexSessionLocation>,
     /// conversation | external | subagent — vertical slice of #1510
-    #[serde(default = "default_session_kind")]
     pub session_kind: String,
-}
-
-fn default_session_kind() -> String {
-    "conversation".to_string()
 }
 
 /// Classify session for UI filters (conversation / external / subagent).

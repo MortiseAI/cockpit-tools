@@ -472,13 +472,6 @@ fn request_codex_graceful_close(pid: u32) -> bool {
     }
 }
 
-/// 重启 Codex 默认实例，让官方 App 重新读取磁盘上的全局状态。
-pub fn restart_codex_default(extra_args: &[String], timeout_secs: u64) -> Result<u32, String> {
-    ensure_codex_launch_path_configured()?;
-    close_codex_default(timeout_secs)?;
-    start_codex_default(extra_args)
-}
-
 /// 关闭受管 Codex 实例（按 CODEX_HOME 匹配，包含默认实例目录）
 pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -756,143 +749,10 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
     }
 }
 
-fn get_trae_pids() -> Vec<u32> {
-    let mut pids = Vec::new();
-
-    #[cfg(target_os = "macos")]
-    {
-        // Use ps to avoid sysinfo TCC dialogs on macOS
-        let app_lower = TRAE_APP_NAME.to_lowercase();
-        let bundle_pattern = format!("{}.app/contents/", app_lower);
-        if let Ok(output) = Command::new("ps")
-            .args(["-axww", "-o", "pid=,command="])
-            .output()
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                let mut parts = line.splitn(2, |ch: char| ch.is_whitespace());
-                let pid_str = parts.next().unwrap_or("").trim();
-                let cmdline = parts.next().unwrap_or("").trim();
-                let pid = match pid_str.parse::<u32>() {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                let lower = cmdline.to_lowercase();
-                if lower.contains(&bundle_pattern)
-                    && !lower.contains("--type=")
-                    && !lower.contains("crashpad_handler")
-                {
-                    pids.push(pid);
-                }
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let mut system = System::new();
-        system.refresh_processes_specifics(
-            sysinfo::ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing()
-                .with_exe(UpdateKind::OnlyIfNotSet)
-                .with_cmd(UpdateKind::OnlyIfNotSet),
-        );
-
-        let current_pid = std::process::id();
-
-        for (pid, process) in system.processes() {
-            let pid_u32 = pid.as_u32();
-            if pid_u32 == current_pid {
-                continue;
-            }
-
-            let name = process.name().to_string_lossy().to_lowercase();
-            let exe_path = process
-                .exe()
-                .and_then(|p| p.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-
-            let args = process.cmd();
-            let args_str = args
-                .iter()
-                .map(|arg| arg.to_string_lossy().to_lowercase())
-                .collect::<Vec<String>>()
-                .join(" ");
-
-            let is_helper = args_str.contains("--type=")
-                || name.contains("helper")
-                || name.contains("plugin")
-                || name.contains("renderer")
-                || name.contains("gpu")
-                || name.contains("crashpad")
-                || name.contains("utility")
-                || name.contains("audio")
-                || name.contains("sandbox")
-                || exe_path.contains("crashpad");
-
-            #[cfg(target_os = "windows")]
-            {
-                if (name.contains("trae") || exe_path.contains("trae")) && !is_helper {
-                    pids.push(pid_u32);
-                }
-            }
-
-            #[cfg(target_os = "linux")]
-            {
-                if (name.contains("trae") || exe_path.contains("/trae")) && !is_helper {
-                    pids.push(pid_u32);
-                }
-            }
-        }
-    }
-
-    if !pids.is_empty() {
-        crate::modules::logger::log_info(&format!(
-            "找到 {} 个 Trae 进程: {}",
-            pids.len(),
-            summarize_pid_list_for_log(&pids)
-        ));
-    }
-
-    pids
-}
-
-pub fn is_trae_running() -> bool {
-    !get_trae_pids().is_empty()
-}
-
 pub fn is_trae_running_for_platform(
     platform: crate::modules::trae_account::TraePlatformKind,
 ) -> bool {
     !collect_trae_process_entries_for_platform(platform).is_empty()
-}
-
-pub fn close_trae(timeout_secs: u64) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let _ = timeout_secs;
-
-    crate::modules::logger::log_info("正在关闭 Trae...");
-    let pids = get_trae_pids();
-    if pids.is_empty() {
-        crate::modules::logger::log_info("Trae 未在运行，无需关闭");
-        return Ok(());
-    }
-
-    crate::modules::logger::log_info(&format!("准备关闭 {} 个 Trae 进程...", pids.len()));
-    let _ = close_pids(&pids, timeout_secs);
-
-    if !get_trae_pids().is_empty() {
-        return Err("无法关闭 Trae 进程，请手动关闭后重试".to_string());
-    }
-
-    crate::modules::logger::log_info("Trae 已成功关闭");
-    Ok(())
 }
 
 /// 检查 OpenCode（桌面端）是否在运行
