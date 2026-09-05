@@ -866,6 +866,36 @@ fn cleanup_profile_takeover_without_backup(
     Ok(changed)
 }
 
+fn restore_profile_takeover_after_detach(
+    profile_dir: &Path,
+    collection: &CodexLocalAccessCollection,
+) -> Result<bool, String> {
+    let profile_key = normalize_profile_dir_key(profile_dir);
+    let mut backups = load_takeover_backups()?;
+    let backup_index = backups
+        .profiles
+        .iter()
+        .position(|backup| backup.profile_dir == profile_key);
+
+    if let Some(index) = backup_index {
+        if restore_profile_takeover_backup(&backups.profiles[index], &collection.api_key, true)? {
+            backups.profiles.remove(index);
+            save_takeover_backups(&backups)?;
+            return Ok(true);
+        }
+    }
+
+    let changed =
+        cleanup_profile_takeover_without_backup(profile_dir, &collection.api_key, true)?;
+    if let Some(index) = backup_index {
+        // The profile no longer contains a managed takeover. The saved snapshot
+        // is stale after an explicit detach and must not be replayed later.
+        backups.profiles.remove(index);
+        save_takeover_backups(&backups)?;
+    }
+    Ok(changed)
+}
+
 fn restore_takeover_profiles_after_disable(
     collection: &CodexLocalAccessCollection,
 ) -> Result<(), String> {

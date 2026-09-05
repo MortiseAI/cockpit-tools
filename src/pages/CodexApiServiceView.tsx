@@ -424,14 +424,20 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 state?.preparing ||
                 testDialogRunning
               }
-              title={t("codex.localAccess.activateAction", "启动 API 服务")}
+              title={t(
+                "codex.localAccess.enableServerOnlyAction",
+                "启用 API 服务（不接管默认 Codex）",
+              )}
             >
               {activating ? (
                 <RefreshCw size={14} className="loading-spinner" />
               ) : (
                 <Play size={14} />
               )}
-              {t("codex.localAccess.activateAction", "启动 API 服务")}
+              {t(
+                "codex.localAccess.enableServerOnlyAction",
+                "启用 API 服务（不接管默认 Codex）",
+              )}
             </button>
             <button
               type="button"

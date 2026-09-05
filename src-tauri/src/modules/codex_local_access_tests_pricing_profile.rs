@@ -501,41 +501,13 @@
             ),
         ];
 
-        let dirs = collect_local_access_profile_takeover_dirs_from_store(
-            store,
-            PathBuf::from("/tmp/default-codex"),
-            true,
-        );
+        let dirs = collect_local_access_profile_takeover_dirs_from_store(store);
 
         assert_eq!(dirs, vec![PathBuf::from("/tmp/codex-api-service")]);
     }
 
     #[test]
-    fn takeover_dirs_include_default_profile_only_when_bound_to_api_service() {
-        let mut store = InstanceStore::new();
-        store.default_settings = DefaultInstanceSettings {
-            bind_account_id: Some(
-                crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID.to_string(),
-            ),
-            ..DefaultInstanceSettings::default()
-        };
-        store.instances = vec![test_instance(
-            "api-service",
-            "/tmp/default-codex",
-            Some(crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID),
-        )];
-
-        let dirs = collect_local_access_profile_takeover_dirs_from_store(
-            store,
-            PathBuf::from("/tmp/default-codex"),
-            true,
-        );
-
-        assert_eq!(dirs, vec![PathBuf::from("/tmp/default-codex")]);
-    }
-
-    #[test]
-    fn takeover_dirs_skip_default_profile_when_default_takeover_is_disabled() {
+    fn takeover_dirs_never_include_default_profile() {
         let mut store = InstanceStore::new();
         store.default_settings = DefaultInstanceSettings {
             bind_account_id: Some(
@@ -549,29 +521,54 @@
             Some(crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID),
         )];
 
-        let dirs = collect_local_access_profile_takeover_dirs_from_store(
-            store,
-            PathBuf::from("/tmp/default-codex"),
-            false,
-        );
+        let dirs = collect_local_access_profile_takeover_dirs_from_store(store);
 
         assert_eq!(dirs, vec![PathBuf::from("/tmp/codex-api-service")]);
     }
 
     #[test]
-    fn oauth_runtime_prevents_automatic_default_profile_takeover() {
-        assert!(!super::should_include_default_profile_for_takeover(
-            false, true
-        ));
-        assert!(!super::should_include_default_profile_for_takeover(
-            true, true
-        ));
-        assert!(!super::should_include_default_profile_for_takeover(
-            true, false
-        ));
-        assert!(super::should_include_default_profile_for_takeover(
-            false, false
-        ));
+    fn detach_discards_stale_takeover_backup_without_touching_official_profile() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let _env = LocalAccessTestDataGuard::new("codex-detach-stale-takeover");
+        let profile_dir = make_temp_dir("codex-detach-stale-profile");
+        let official_config = "model = \"gpt-official\"\n";
+        let official_auth = r#"{"tokens":{"access_token":"official-access"}}"#;
+        fs::write(profile_dir.join(CODEX_PROFILE_CONFIG_FILE), official_config)
+            .expect("write official config");
+        fs::write(profile_dir.join(CODEX_PROFILE_AUTH_FILE), official_auth)
+            .expect("write official auth");
+
+        let collection = test_local_access_collection(Vec::new());
+        super::save_profile_takeover_backup(&profile_dir, &collection.api_key)
+            .expect("save takeover backup");
+        assert_eq!(
+            super::load_takeover_backups()
+                .expect("load takeover backups")
+                .profiles
+                .len(),
+            1
+        );
+
+        assert!(!super::restore_profile_takeover_after_detach(&profile_dir, &collection)
+            .expect("detach official profile"));
+        assert!(super::load_takeover_backups()
+            .expect("reload takeover backups")
+            .profiles
+            .is_empty());
+        assert_eq!(
+            fs::read_to_string(profile_dir.join(CODEX_PROFILE_CONFIG_FILE))
+                .expect("read official config"),
+            official_config
+        );
+        assert_eq!(
+            fs::read_to_string(profile_dir.join(CODEX_PROFILE_AUTH_FILE))
+                .expect("read official auth"),
+            official_auth
+        );
+
+        fs::remove_dir_all(profile_dir).expect("cleanup detached profile");
     }
 
     #[test]

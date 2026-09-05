@@ -90,10 +90,25 @@ fn instances_path() -> Result<PathBuf, String> {
     Ok(data_dir.join(CODEX_INSTANCES_FILE))
 }
 
+fn enforce_default_profile_isolation(store: &mut InstanceStore) -> bool {
+    if store
+        .default_settings
+        .bind_account_id
+        .as_deref()
+        .is_some_and(is_api_service_bind_account_id)
+    {
+        store.default_settings.bind_account_id = None;
+        store.default_settings.follow_local_account = true;
+        return true;
+    }
+    false
+}
+
 pub fn load_instance_store() -> Result<InstanceStore, String> {
     let path = instances_path()?;
     let mut store = instance_store::load_instance_store(&path, CODEX_INSTANCES_FILE)?;
-    if normalize_managed_instance_dirs(&mut store)? {
+    let default_profile_isolated = enforce_default_profile_isolation(&mut store);
+    if default_profile_isolated || normalize_managed_instance_dirs(&mut store)? {
         save_instance_store(&store)?;
     }
     Ok(store)
@@ -117,6 +132,16 @@ pub fn update_default_settings(
     launch_mode: Option<InstanceLaunchMode>,
     auto_sync_threads: Option<bool>,
 ) -> Result<DefaultInstanceSettings, String> {
+    if bind_account_id
+        .as_ref()
+        .and_then(|value| value.as_deref())
+        .is_some_and(is_api_service_bind_account_id)
+    {
+        return Err(
+            "DEFAULT_CODEX_PROFILE_PROTECTED: API 服务不能绑定默认 ~/.codex；请使用独立 CLI 实例"
+                .to_string(),
+        );
+    }
     let _lock = CODEX_INSTANCE_STORE_LOCK
         .lock()
         .map_err(|_| "无法获取实例锁")?;
@@ -1237,6 +1262,48 @@ pub async fn project_preflighted_account_to_profile_for_launch(
     modules::codex_account::project_preflighted_account_for_instance_launch(account_id, profile_dir)
         .await
         .map(|_| ())
+}
+
+#[cfg(test)]
+mod default_profile_isolation_tests {
+    use super::*;
+
+    #[test]
+    fn api_service_binding_is_removed_from_default_profile() {
+        let mut store = InstanceStore::new();
+        store.default_settings.bind_account_id =
+            Some(CODEX_API_SERVICE_BIND_ACCOUNT_ID.to_string());
+        store.default_settings.follow_local_account = false;
+
+        assert!(enforce_default_profile_isolation(&mut store));
+        assert_eq!(store.default_settings.bind_account_id, None);
+        assert!(store.default_settings.follow_local_account);
+    }
+
+    #[test]
+    fn managed_instance_api_service_binding_is_preserved() {
+        let mut store = InstanceStore::new();
+        store.instances.push(InstanceProfile {
+            id: "proxy-cli".to_string(),
+            name: "Proxy CLI".to_string(),
+            user_data_dir: "/tmp/codex-proxy-cli".to_string(),
+            working_dir: None,
+            extra_args: String::new(),
+            bind_account_id: Some(CODEX_API_SERVICE_BIND_ACCOUNT_ID.to_string()),
+            model_routing: None,
+            launch_mode: InstanceLaunchMode::Cli,
+            app_speed: CodexAppSpeed::Standard,
+            created_at: 0,
+            last_launched_at: None,
+            last_pid: None,
+        });
+
+        assert!(!enforce_default_profile_isolation(&mut store));
+        assert_eq!(
+            store.instances[0].bind_account_id.as_deref(),
+            Some(CODEX_API_SERVICE_BIND_ACCOUNT_ID)
+        );
+    }
 }
 
 #[cfg(all(test, windows))]

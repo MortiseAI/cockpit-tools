@@ -183,6 +183,8 @@ export function CodexLaunchPreviewModal({
         : undefined),
     [instanceId, instances],
   );
+  const serverOnlyMode =
+    mode === "apiService" && instanceId === DEFAULT_CODEX_INSTANCE_ID;
   const resolveModelSource = useMemo(
     () =>
       createCodexModelSourceResolver(
@@ -261,6 +263,14 @@ export function CodexLaunchPreviewModal({
     setNotice(null);
     setManualRefreshResult(null);
     setManualRefreshedAccount(null);
+    if (serverOnlyMode) {
+      setRoutingEnabled(false);
+      setRoutingRoutes([]);
+      setLoading(false);
+      return () => {
+        active = false;
+      };
+    }
     const routing = selectedInstance?.modelRouting;
     setRoutingEnabled(Boolean(routing?.enabled));
     setRoutingRoutes(routing?.routes?.map((route) => ({ ...route })) ?? []);
@@ -295,7 +305,15 @@ export function CodexLaunchPreviewModal({
     return () => {
       active = false;
     };
-  }, [account?.id, applyLoadedConfig, instanceId, selectedInstance, setError, t]);
+  }, [
+    account?.id,
+    applyLoadedConfig,
+    instanceId,
+    selectedInstance,
+    serverOnlyMode,
+    setError,
+    t,
+  ]);
 
   const nextModelRouting = useMemo(
     () => buildCodexModelRoutingValue(routingEnabled, routingRoutes),
@@ -308,6 +326,7 @@ export function CodexLaunchPreviewModal({
     [nextModelRouting, selectedInstance?.modelRouting],
   );
   const dirty = useMemo(() => {
+    if (serverOnlyMode) return false;
     if (!loadedConfig && !routingDirty) return false;
     return (
       routingDirty ||
@@ -324,9 +343,11 @@ export function CodexLaunchPreviewModal({
     loadedConfig,
     models,
     routingDirty,
+    serverOnlyMode,
   ]);
 
   const persistDraft = useCallback(async () => {
+    if (serverOnlyMode) return true;
     if (!loadedConfig || (catalogEnabled && modelsError && !routingEnabled)) {
       if (catalogEnabled && modelsError) setError(modelsError);
       return false;
@@ -452,6 +473,7 @@ export function CodexLaunchPreviewModal({
     routingDirty,
     routingEnabled,
     routingRoutes,
+    serverOnlyMode,
     setError,
     t,
   ]);
@@ -1029,7 +1051,8 @@ export function CodexLaunchPreviewModal({
               )}
             </section>
 
-            <div className="codex-launch-preview-tool-list">
+            {!serverOnlyMode && (
+              <div className="codex-launch-preview-tool-list">
               {mode !== "apiService" &&
                 account &&
                 isStandardCodexOAuthAccount(account) &&
@@ -1176,7 +1199,8 @@ export function CodexLaunchPreviewModal({
                   )}
                 </button>
               </section>
-            </div>
+              </div>
+            )}
 
             {notice && (
               <div className="add-status success">

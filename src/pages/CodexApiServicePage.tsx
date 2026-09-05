@@ -1697,27 +1697,28 @@ export function useCodexApiServicePageController() {
 
   const handleActivateService = async () => {
     if (!collection) return;
-    if (!collection.enabled) {
-      const confirmedEnableAndSwitch = await confirmDialog(
+    if (collection.enabled) {
+      setNotice(
         t(
-          "codex.localAccess.enableBeforeActivateMessage",
-          "API 服务当前未启用，需要先启用服务。是否启用并切号？",
+          "codex.localAccess.serverOnlyRunning",
+          "API 服务正在运行；默认 ~/.codex 和官方 Codex App 不会被接管。",
         ),
-        {
-          title: t(
-            "codex.localAccess.enableBeforeActivateTitle",
-            "服务未启用",
-          ),
-          kind: "warning",
-          okLabel: t(
-            "codex.localAccess.enableAndActivateAction",
-            "启用并切号",
-          ),
-          cancelLabel: t("common.cancel", "取消"),
-        },
       );
-      if (!confirmedEnableAndSwitch) return;
+      return;
     }
+    const confirmedEnable = await confirmDialog(
+      t(
+        "codex.localAccess.enableServerOnlyMessage",
+        "将启动本地 API 服务，但不会切换或修改默认 ~/.codex。是否继续？",
+      ),
+      {
+        title: t("codex.localAccess.enableBeforeActivateTitle", "服务未启用"),
+        kind: "warning",
+        okLabel: t("codex.localAccess.enableService", "启用服务"),
+        cancelLabel: t("common.cancel", "取消"),
+      },
+    );
+    if (!confirmedEnable) return;
     if (!isCodexLocalAccessRiskNoticeDismissed()) {
       const confirmedRisk = await confirmDialog(
         t(
@@ -1741,13 +1742,15 @@ export function useCodexApiServicePageController() {
     setError("");
     setNotice("");
     try {
-      const next = await codexLocalAccessService.activateCodexLocalAccess();
+      const next = await codexLocalAccessService.setCodexLocalAccessEnabled(true);
       if (!mountedRef.current) return;
       setState(next);
-      await fetchCurrentAccount();
       await refreshApiServiceCurrent();
       setNotice(
-        t("codex.localAccess.activateSuccess", "已切换到 API 服务"),
+        t(
+          "codex.localAccess.serverOnlyEnabled",
+          "API 服务已启用；请通过独立 CLI 实例或进程级环境变量连接。",
+        ),
       );
     } catch (err) {
       if (!mountedRef.current) return;
@@ -1755,12 +1758,11 @@ export function useCodexApiServicePageController() {
         presentWindowsOperationError({
           error: err,
           operation: "start_sidecar",
-          summary: t("codex.localAccess.activateAction", "启动 API 服务"),
+          summary: t("codex.localAccess.enableService", "启用服务"),
           retry: async () => {
-            const next = await codexLocalAccessService.activateCodexLocalAccess();
+            const next = await codexLocalAccessService.setCodexLocalAccessEnabled(true);
             if (!mountedRef.current) return;
             setState(next);
-            await fetchCurrentAccount();
             await refreshApiServiceCurrent();
           },
         })

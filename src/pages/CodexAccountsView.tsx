@@ -3,7 +3,10 @@ import { RefreshCw, Download, X, Database, Copy, Check, CircleAlert, Minimize2 }
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
 import { CodexOverviewTabsHeader } from "../components/CodexOverviewTabsHeader";
 import { CodexInstancesContent } from "./CodexInstancesPage";
-import { CodexLaunchPreviewModal } from "../components/codex/CodexLaunchPreviewModal";
+import {
+  CodexLaunchPreviewModal,
+  DEFAULT_CODEX_INSTANCE_ID,
+} from "../components/codex/CodexLaunchPreviewModal";
 import { CodexSessionManager } from "../components/codex/CodexSessionManager";
 import { CodexCliLaunchDialog } from "../components/codex/CodexCliLaunchDialog";
 import { CodexWakeupContent } from "../components/codex/CodexWakeupContent";
@@ -828,8 +831,25 @@ export function CodexAccountsView(props: CodexAccountsViewProps) {
           summary={buildLocalAccessLaunchPreviewSummary()}
           actions={buildLocalAccessLaunchPreviewActions()}
           instanceId={launchPreviewInstanceId}
-          instanceLabel={launchPreviewInstanceLabel}
-          instanceOptions={launchPreviewInstanceOptions}
+          instanceLabel={
+            launchPreviewInstanceId === DEFAULT_CODEX_INSTANCE_ID
+              ? t(
+                  "codex.localAccess.serverOnlyTarget",
+                  "仅启动服务（不接管默认 Codex）",
+                )
+              : launchPreviewInstanceLabel
+          }
+          instanceOptions={launchPreviewInstanceOptions.map((option) =>
+            option.value === DEFAULT_CODEX_INSTANCE_ID
+              ? {
+                  ...option,
+                  label: t(
+                    "codex.localAccess.serverOnlyTarget",
+                    "仅启动服务（不接管默认 Codex）",
+                  ),
+                }
+              : option,
+          )}
           onInstanceChange={setLaunchPreviewInstanceId}
           mode="apiService"
           onClose={() => setLocalAccessLaunchPreviewOpen(false)}

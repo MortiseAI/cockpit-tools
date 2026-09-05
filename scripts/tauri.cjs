@@ -2,23 +2,34 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { createTauriEnv } = require('./tauri-env.cjs');
 
 const repoRoot = path.resolve(__dirname, '..');
 const goBinPath = 'C:\\Program Files\\Go\\bin';
+const rawTauriArgs = process.argv.slice(2);
+const isDevCommand = rawTauriArgs[0] === 'dev';
+const hasExplicitConfig = rawTauriArgs.some(
+  (arg) => arg === '--config' || arg.startsWith('--config='),
+);
+const tauriArgs =
+  isDevCommand && !hasExplicitConfig
+    ? ['dev', '--config', 'src-tauri/tauri.dev.conf.json', ...rawTauriArgs.slice(1)]
+    : rawTauriArgs;
+const commandEnv = isDevCommand
+  ? {
+      COCKPIT_TOOLS_PROFILE: process.env.COCKPIT_TOOLS_PROFILE || 'dev',
+      COCKPIT_TOOLS_API_PORT: process.env.COCKPIT_TOOLS_API_PORT || '1456',
+      VITE_COCKPIT_TOOLS_PROFILE: process.env.VITE_COCKPIT_TOOLS_PROFILE || 'dev',
+    }
+  : {};
 
-function withGoPath(options = {}) {
-  const currentPath = process.env.PATH || '';
-  const pathValue = fs.existsSync(goBinPath)
-    ? `${goBinPath}${path.delimiter}${currentPath}`
-    : currentPath;
-
+function withTauriEnv(options = {}) {
   return {
     ...options,
-    env: {
-      ...process.env,
+    env: createTauriEnv({
+      ...commandEnv,
       ...options.env,
-      PATH: pathValue,
-    },
+    }),
   };
 }
 
@@ -27,7 +38,7 @@ function run(command, args, options = {}) {
     cwd: repoRoot,
     stdio: 'inherit',
     shell: false,
-    ...withGoPath(options),
+    ...withTauriEnv(options),
   });
 
   if (result.error) {
@@ -44,7 +55,7 @@ function runFinal(command, args, options = {}) {
     cwd: repoRoot,
     stdio: 'inherit',
     shell: false,
-    ...withGoPath(options),
+    ...withTauriEnv(options),
   });
 
   if (result.error) {
@@ -56,12 +67,12 @@ function runFinal(command, args, options = {}) {
 
 function runTauriDirect() {
   run('npm.cmd', ['run', 'sync-version'], { shell: process.platform === 'win32' });
-  runFinal('npx.cmd', ['tauri', ...process.argv.slice(2)], { shell: process.platform === 'win32' });
+  runFinal('npx.cmd', ['tauri', ...tauriArgs], { shell: process.platform === 'win32' });
 }
 
 if (process.platform !== 'win32') {
   run('npm', ['run', 'sync-version']);
-  runFinal('npx', ['tauri', ...process.argv.slice(2)]);
+  runFinal('npx', ['tauri', ...tauriArgs]);
 }
 
 const vcvars64Path = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat';
@@ -73,8 +84,6 @@ if (!fs.existsSync(vcvars64Path)) {
 
 const tempScriptPath = path.join(os.tmpdir(), `cockpit-tools-tauri-${process.pid}.cmd`);
 const tauriCliPath = path.join(repoRoot, 'node_modules', '.bin', 'tauri.cmd');
-const tauriArgs = process.argv.slice(2);
-
 if (!fs.existsSync(tauriCliPath)) {
   console.warn('Local tauri CLI not found, falling back to the existing shell environment.');
   runTauriDirect();

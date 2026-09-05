@@ -1,4 +1,5 @@
 const { spawnSync } = require('node:child_process');
+const { createTauriEnv } = require('./tauri-env.cjs');
 
 function resolveMacosSdkRoot() {
   if (process.platform !== 'darwin') {
@@ -20,12 +21,11 @@ function resolveMacosSdkRoot() {
   return current || undefined;
 }
 
-const env = {
-  ...process.env,
+const env = createTauriEnv({
   COCKPIT_TOOLS_PROFILE: process.env.COCKPIT_TOOLS_PROFILE || 'dev',
   COCKPIT_TOOLS_API_PORT: process.env.COCKPIT_TOOLS_API_PORT || '1456',
   VITE_COCKPIT_TOOLS_PROFILE: process.env.VITE_COCKPIT_TOOLS_PROFILE || 'dev',
-};
+});
 const macosSdkRoot = resolveMacosSdkRoot();
 if (macosSdkRoot) {
   env.SDKROOT = macosSdkRoot;

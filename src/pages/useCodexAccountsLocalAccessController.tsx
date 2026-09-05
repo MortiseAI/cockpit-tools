@@ -1771,11 +1771,20 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
               options?.instanceId,
             );
           setLocalAccessState(nextState);
-          await fetchCurrentAccount();
-          setLocalAccessLaunchCurrent(true);
+          setLocalAccessLaunchCurrent(false);
           if (options?.showSuccessMessage ?? true) {
             setMessage({
-              text: t("codex.localAccess.activateSuccess", "已切换到 API 服务"),
+              text:
+                options?.instanceId &&
+                options.instanceId !== DEFAULT_CODEX_INSTANCE_ID
+                  ? t(
+                      "codex.localAccess.managedInstanceActivated",
+                      "API 服务已通过独立实例启动，默认 Codex 未受影响。",
+                    )
+                  : t(
+                      "codex.localAccess.serverOnlyEnabled",
+                      "API 服务已启用，默认 ~/.codex 和官方 Codex App 未被接管。",
+                    ),
             });
           }
           return nextState;
@@ -1789,7 +1798,6 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
         }
       },
       [
-        fetchCurrentAccount,
         localAccessCollection,
         requestLocalAccessRiskNotice,
         setMessage,

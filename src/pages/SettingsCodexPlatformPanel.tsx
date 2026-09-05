@@ -353,7 +353,7 @@ export function SettingsCodexPlatformPanel(props: SettingsPageViewProps) {
                   <div className="row-desc">
                     {t(
                       'settings.general.codexAutoRestoreTakeoverOnLaunchDesc',
-                      '工具启动时自动恢复上次的可见模型与代理接管，保持 1M 上下文且无需手动切换',
+                      '仅恢复 Cockpit 管理的独立 Codex 实例，不会修改默认 ~/.codex 或官方 Codex App',
                     )}
                   </div>
                 </div>

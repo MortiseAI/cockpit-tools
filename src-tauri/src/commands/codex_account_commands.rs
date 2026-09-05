@@ -2437,18 +2437,23 @@ pub async fn codex_wakeup_run_enabled_tasks(
     codex_wakeup_scheduler::run_enabled_tasks_now(Some(&app), &trigger).await
 }
 
-/// 启动时根据配置自动恢复可见模型目录与代理接管状态
+/// 启动时仅恢复 Cockpit 管理的独立实例；默认 ~/.codex 始终保持官方状态。
 #[tauri::command]
-pub async fn restore_codex_active_takeover_if_enabled(app: AppHandle) -> Result<bool, String> {
+pub async fn restore_codex_active_takeover_if_enabled(_app: AppHandle) -> Result<bool, String> {
     let cfg = config::get_user_config();
     if !cfg.codex_auto_restore_takeover_on_launch {
         return Ok(false);
     }
-    let base_dir = codex_account::get_codex_home();
-    let reapply_catalog_result =
-        codex_account::reapply_experimental_model_policy_if_enabled(&base_dir)?;
+    let store = crate::modules::codex_instance::load_instance_store()?;
+    let mut reapply_catalog_result = false;
+    for instance in store.instances {
+        let base_dir = PathBuf::from(instance.user_data_dir);
+        if codex_account::reapply_experimental_model_policy_if_enabled(&base_dir)? {
+            reapply_catalog_result = true;
+        }
+    }
     logger::log_info(&format!(
-        "[Codex Auto-Restore] restore_codex_active_takeover_if_enabled executed: reapply_catalog={}",
+        "[Codex Auto-Restore] managed instances restored: reapply_catalog={}",
         reapply_catalog_result
     ));
     Ok(reapply_catalog_result)

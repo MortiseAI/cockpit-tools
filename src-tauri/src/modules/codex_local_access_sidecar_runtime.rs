@@ -1269,22 +1269,9 @@ fn push_local_access_takeover_dir(
 
 fn collect_local_access_profile_takeover_dirs_from_store(
     store: crate::models::InstanceStore,
-    default_profile: PathBuf,
-    include_default_profile: bool,
 ) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen = HashSet::new();
-
-    if include_default_profile
-        && store
-            .default_settings
-            .bind_account_id
-            .as_deref()
-            .map(crate::modules::codex_instance::is_api_service_bind_account_id)
-            .unwrap_or(false)
-    {
-        push_local_access_takeover_dir(&mut dirs, &mut seen, default_profile);
-    }
 
     for instance in store.instances {
         let Some(bind_account_id) = instance.bind_account_id.as_deref() else {
@@ -1303,13 +1290,6 @@ fn collect_local_access_profile_takeover_dirs_from_store(
     dirs
 }
 
-fn should_include_default_profile_for_takeover(
-    is_dev_profile: bool,
-    default_profile_is_oauth_runtime: bool,
-) -> bool {
-    !is_dev_profile && !default_profile_is_oauth_runtime
-}
-
 fn collect_local_access_profile_takeover_dirs() -> Vec<PathBuf> {
     let store = match crate::modules::codex_instance::load_instance_store() {
         Ok(store) => store,
@@ -1322,33 +1302,9 @@ fn collect_local_access_profile_takeover_dirs() -> Vec<PathBuf> {
         }
     };
 
-    // Dev and production keep separate app data, but the official default Codex
-    // profile is shared. Never let an automatically restored gateway claim a
-    // default profile that is currently being used by an OAuth-backed official
-    // Codex process from the other environment.
-    let default_profile_is_oauth_runtime = {
-        let default_profile = codex_account::get_codex_home();
-        let default_key = normalize_profile_dir_key(&default_profile);
-        process::collect_codex_process_entries()
-            .into_iter()
-            .any(|(_, runtime_home)| {
-                (runtime_home.is_none()
-                    || runtime_home
-                        .as_deref()
-                        .map(Path::new)
-                        .map(normalize_profile_dir_key)
-                        .is_some_and(|key| key == default_key))
-                    && codex_account::oauth_account_id_for_runtime_dir(&default_profile).is_some()
-            })
-    };
-    collect_local_access_profile_takeover_dirs_from_store(
-        store,
-        codex_account::get_codex_home(),
-        should_include_default_profile_for_takeover(
-            account::is_dev_profile(),
-            default_profile_is_oauth_runtime,
-        ),
-    )
+    // The official CLI and Codex App share ~/.codex. API Service attachments are
+    // therefore restricted to explicitly managed, non-default instance homes.
+    collect_local_access_profile_takeover_dirs_from_store(store)
 }
 
 async fn ensure_profile_takeover(

@@ -114,6 +114,7 @@ type AccountSelectPortalPosition = {
 type BaseAccountSelectProps = {
   value: string | null;
   onChange: (nextId: string | null) => void;
+  allowApiService?: boolean;
   allowUnbound?: boolean;
   allowFollowCurrent?: boolean;
   isFollowingCurrent?: boolean;
@@ -132,6 +133,7 @@ type AccountMenuItemsRenderArgs<TAccount extends AccountLike> = {
   onToggleTagFilter: (tag: string) => void;
   onClearTagFilter: () => void;
   value: string | null;
+  allowApiService?: boolean;
   isFollowingCurrent?: boolean;
   allowFollowCurrent?: boolean;
   allowUnbound?: boolean;
@@ -320,6 +322,7 @@ const InlineAccountSelect = <TAccount extends AccountLike>({
   maskAccountText,
   resolveApiServiceLabel,
   renderAccountMenuItems,
+  allowApiService = true,
   allowUnbound = false,
   allowFollowCurrent = false,
   isFollowingCurrent = false,
@@ -551,6 +554,7 @@ const InlineAccountSelect = <TAccount extends AccountLike>({
                   onToggleTagFilter: toggleTagFilter,
                   onClearTagFilter: () => setTagFilter([]),
                   value,
+                  allowApiService,
                   isFollowingCurrent,
                   allowFollowCurrent,
                   allowUnbound,
@@ -2334,6 +2338,7 @@ export function InstancesManager<TAccount extends AccountLike>({
     onToggleTagFilter,
     onClearTagFilter,
     value,
+    allowApiService = true,
     isFollowingCurrent = false,
     allowFollowCurrent = false,
     allowUnbound = false,
@@ -2424,7 +2429,7 @@ export function InstancesManager<TAccount extends AccountLike>({
           </span>
         </button>
       )}
-      {isCodexApp && (
+      {isCodexApp && allowApiService && (
         <button
           type="button"
           className={`account-select-item ${value === CODEX_API_SERVICE_BIND_ID && !isFollowingCurrent ? "active" : ""}`}
@@ -2485,6 +2490,7 @@ export function InstancesManager<TAccount extends AccountLike>({
   const renderFormAccountSelect = (props: BaseAccountSelectProps) => (
     <InlineAccountSelect
       {...props}
+      allowApiService={!editing?.isDefault}
       accounts={accounts}
       launchMode={formLaunchMode}
       filterAccountsForLaunchMode={filterAccountsForLaunchMode}
@@ -2872,6 +2878,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                       maskAccountText={maskAccountText}
                       resolveApiServiceLabel={resolveApiServiceLabel}
                       renderAccountMenuItems={renderAccountMenuItems}
+                      allowApiService={!instance.isDefault}
                       disabled={isInstanceBusy}
                       missing={accountMissing}
                       placeholder={t("instances.labels.unbound", "未绑定")}

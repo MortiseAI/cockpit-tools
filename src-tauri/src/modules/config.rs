@@ -717,7 +717,7 @@ fn default_codex_sync_wsl() -> bool {
     false
 }
 fn default_codex_app_ui_injection_enabled() -> bool {
-    true
+    false
 }
 
 fn default_codex_cli_only_allow_app_server_clients() -> bool {
@@ -1014,7 +1014,7 @@ fn default_codex_launch_on_switch() -> bool {
     true
 }
 fn default_codex_auto_restore_takeover_on_launch() -> bool {
-    true
+    false
 }
 fn default_antigravity_launch_on_switch() -> bool {
     true
@@ -1297,8 +1297,7 @@ impl Default for UserConfig {
             openclaw_auth_overwrite_on_switch: default_openclaw_auth_overwrite_on_switch(),
             hermes_auth_overwrite_on_switch: default_hermes_auth_overwrite_on_switch(),
             codex_launch_on_switch: default_codex_launch_on_switch(),
-            codex_auto_restore_takeover_on_launch:
-                default_codex_auto_restore_takeover_on_launch(),
+            codex_auto_restore_takeover_on_launch: default_codex_auto_restore_takeover_on_launch(),
             antigravity_launch_on_switch: default_antigravity_launch_on_switch(),
             codex_restart_specified_app_on_switch: default_codex_restart_specified_app_on_switch(),
             codex_local_access_entry_visible: default_codex_local_access_entry_visible(),
@@ -2601,19 +2600,29 @@ mod tests {
     }
 
     #[test]
-    fn codex_api_service_quota_display_defaults_to_enabled() {
+    fn codex_app_ui_injection_defaults_to_disabled() {
         let default_cfg = UserConfig::default();
-        assert!(default_cfg.codex_app_ui_injection_enabled);
+        assert!(!default_cfg.codex_app_ui_injection_enabled);
 
         let upgraded_cfg: UserConfig =
             serde_json::from_value(serde_json::json!({})).expect("旧配置反序列化应成功");
-        assert!(upgraded_cfg.codex_app_ui_injection_enabled);
+        assert!(!upgraded_cfg.codex_app_ui_injection_enabled);
 
-        let disabled_cfg: UserConfig = serde_json::from_value(serde_json::json!({
-            "codex_app_ui_injection_enabled": false
+        let enabled_cfg: UserConfig = serde_json::from_value(serde_json::json!({
+            "codex_app_ui_injection_enabled": true
         }))
-        .expect("显式关闭配置反序列化应成功");
-        assert!(!disabled_cfg.codex_app_ui_injection_enabled);
+        .expect("显式开启配置反序列化应成功");
+        assert!(enabled_cfg.codex_app_ui_injection_enabled);
+    }
+
+    #[test]
+    fn codex_automatic_takeover_restore_defaults_to_disabled() {
+        let default_cfg = UserConfig::default();
+        assert!(!default_cfg.codex_auto_restore_takeover_on_launch);
+
+        let upgraded_cfg: UserConfig =
+            serde_json::from_value(serde_json::json!({})).expect("旧配置反序列化应成功");
+        assert!(!upgraded_cfg.codex_auto_restore_takeover_on_launch);
     }
 
     #[test]

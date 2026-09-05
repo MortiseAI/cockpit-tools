@@ -1394,6 +1394,18 @@ pub async fn set_local_access_enabled(enabled: bool) -> Result<CodexLocalAccessS
     }
 }
 
+pub async fn detach_local_access_profile(profile_dir: &Path) -> Result<bool, String> {
+    ensure_runtime_loaded_without_start().await?;
+    let collection = {
+        let runtime = gateway_runtime().lock().await;
+        runtime.collection.clone()
+    };
+    let Some(collection) = collection else {
+        return Ok(false);
+    };
+    restore_profile_takeover_after_detach(profile_dir, &collection)
+}
+
 pub async fn restore_local_access_gateway() {
     if let Err(err) = ensure_runtime_loaded_for_app_startup().await {
         let mut runtime = gateway_runtime().lock().await;

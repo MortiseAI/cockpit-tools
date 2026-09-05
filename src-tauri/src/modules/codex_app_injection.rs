@@ -410,26 +410,8 @@ fn remote_debugging_port_for_pid(pid: u32) -> Option<u16> {
 
 pub fn restore_running_profiles(app: AppHandle) -> Result<usize, String> {
     let store = crate::modules::codex_instance::load_instance_store()?;
-    let default_dir = crate::modules::codex_instance::get_default_codex_home()?;
     let process_entries = crate::modules::process::collect_codex_process_entries();
     let mut candidates = Vec::new();
-
-    if store.default_settings.launch_mode == crate::models::InstanceLaunchMode::App
-        && should_enable_cdp(store.default_settings.bind_account_id.as_deref())
-    {
-        if let Some(pid) = crate::modules::process::resolve_codex_pid_from_entries(
-            store.default_settings.last_pid,
-            None,
-            &process_entries,
-        ) {
-            candidates.push((
-                "__default__".to_string(),
-                default_dir,
-                pid,
-                store.default_settings.bind_account_id.clone(),
-            ));
-        }
-    }
 
     for instance in store.instances {
         if instance.launch_mode != crate::models::InstanceLaunchMode::App

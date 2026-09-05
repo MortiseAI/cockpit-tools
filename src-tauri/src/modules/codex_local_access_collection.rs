@@ -1825,6 +1825,23 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
             }
         }
 
+        // API 服务是 server-only by default。启动时主动撤销历史版本对
+        // 官方 ~/.codex 的持久化接管，同时保留网关本身和独立实例绑定。
+        #[cfg(not(test))]
+        if let Some(collection) = next_collection.as_ref() {
+            let default_profile = codex_account::get_codex_home();
+            match restore_profile_takeover_after_detach(&default_profile, collection) {
+                Ok(true) => logger::log_codex_api_info(
+                    "Codex API 服务已恢复默认 ~/.codex；后续仅接管独立实例",
+                ),
+                Ok(false) => {}
+                Err(error) => logger::log_codex_api_warn(&format!(
+                    "恢复默认 ~/.codex 的历史 API 服务接管失败: {}",
+                    error
+                )),
+            }
+        }
+
         // After the base runtime is visible, prune stale account membership in background.
         ensure_collection_account_sanitize_started();
 

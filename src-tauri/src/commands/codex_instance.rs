@@ -629,6 +629,9 @@ async fn apply_bound_account_to_initialized_profile(
     }
 
     restore_mixed_model_gateway_when_disabled(profile_dir, model_routing).await?;
+    if !bind_account_id.is_some_and(modules::codex_instance::is_api_service_bind_account_id) {
+        modules::codex_local_access::detach_local_access_profile(profile_dir).await?;
+    }
     let previous_kind = read_applied_launch_credential_kind_for_dir(profile_dir);
     if let Some(account_id) = bind_account_id {
         // 已初始化 profile 的绑定变更也可能立即被官方客户端读取。
