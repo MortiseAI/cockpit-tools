@@ -35,6 +35,7 @@ import {
   createCodexModelSourceResolver,
   collectRouteUpstreamModels,
   eligibleCodexModelRoutingAccounts,
+  normalizeCodexModelRoutingRoutes,
   shortCodexRouteAccountLabel,
   syncExperimentalModelsWithRouting,
   toggleRouteModelInRoutes,
@@ -173,6 +174,7 @@ export function CodexLaunchPreviewModal({
   );
   const [notice, setNotice] = useState<string | null>(null);
   const accounts = useCodexAccountStore((state) => state.accounts);
+  const currentAccount = useCodexAccountStore((state) => state.currentAccount);
   const fetchAccounts = useCodexAccountStore((state) => state.fetchAccounts);
   const instances = useCodexInstanceStore((state) => state.instances);
   const selectedInstance = useMemo(
@@ -188,7 +190,7 @@ export function CodexLaunchPreviewModal({
   const resolveModelSource = useMemo(
     () =>
       createCodexModelSourceResolver(
-        routingRoutes,
+        normalizeCodexModelRoutingRoutes(routingRoutes, accounts),
         accounts,
         t,
       ),
@@ -196,7 +198,7 @@ export function CodexLaunchPreviewModal({
   );
   const availableChannels = useMemo(() => {
     const providerAccounts = eligibleCodexModelRoutingAccounts(accounts);
-    return routingRoutes
+    return normalizeCodexModelRoutingRoutes(routingRoutes, accounts)
       .filter((route) => route.enabled)
       .map((route) => {
         const provider = providerAccounts.find(
@@ -272,17 +274,21 @@ export function CodexLaunchPreviewModal({
       };
     }
     const routing = selectedInstance?.modelRouting;
+    const loadedRoutes = normalizeCodexModelRoutingRoutes(
+      routing?.routes ?? [],
+      accounts,
+    );
     setRoutingEnabled(Boolean(routing?.enabled));
-    setRoutingRoutes(routing?.routes?.map((route) => ({ ...route })) ?? []);
+    setRoutingRoutes(loadedRoutes);
     void getCodexInstanceQuickConfig(instanceId)
       .then((config) => {
         if (active) {
           applyLoadedConfig(config);
-          if (routing?.enabled && routing.routes?.length) {
+          if (routing?.enabled && loadedRoutes.length) {
             setModels(
               syncExperimentalModelsWithRouting(
                 config.experimental_model_catalog_models,
-                routing.routes,
+                loadedRoutes,
                 accounts,
                 true,
               ),
@@ -307,6 +313,7 @@ export function CodexLaunchPreviewModal({
     };
   }, [
     account?.id,
+    accounts,
     applyLoadedConfig,
     instanceId,
     selectedInstance,
@@ -315,15 +322,41 @@ export function CodexLaunchPreviewModal({
     t,
   ]);
 
+  const normalizedRoutingRoutes = useMemo(
+    () => normalizeCodexModelRoutingRoutes(routingRoutes, accounts),
+    [accounts, routingRoutes],
+  );
+  const effectiveLaunchAccount = account ?? currentAccount;
+  const mixedRoutingOAuthAccount = useMemo(() => {
+    if (!routingEnabled) return null;
+    if (effectiveLaunchAccount && isStandardCodexOAuthAccount(effectiveLaunchAccount)) {
+      return effectiveLaunchAccount;
+    }
+    return accounts.find((item) => isStandardCodexOAuthAccount(item)) ?? null;
+  }, [accounts, effectiveLaunchAccount, routingEnabled]);
+  const mixedRoutingBindAccountId =
+    routingEnabled && mixedRoutingOAuthAccount?.id !== effectiveLaunchAccount?.id
+      ? mixedRoutingOAuthAccount?.id
+      : undefined;
+  const routingBindingNeedsRepair =
+    routingEnabled && mixedRoutingOAuthAccount == null;
+
   const nextModelRouting = useMemo(
-    () => buildCodexModelRoutingValue(routingEnabled, routingRoutes),
-    [routingEnabled, routingRoutes],
+    () => buildCodexModelRoutingValue(routingEnabled, normalizedRoutingRoutes),
+    [normalizedRoutingRoutes, routingEnabled],
   );
   const routingDirty = useMemo(
     () =>
       JSON.stringify(selectedInstance?.modelRouting ?? null) !==
-      JSON.stringify(nextModelRouting),
-    [nextModelRouting, selectedInstance?.modelRouting],
+        JSON.stringify(nextModelRouting) ||
+      routingBindingNeedsRepair ||
+      mixedRoutingBindAccountId !== undefined,
+    [
+      mixedRoutingBindAccountId,
+      nextModelRouting,
+      routingBindingNeedsRepair,
+      selectedInstance?.modelRouting,
+    ],
   );
   const dirty = useMemo(() => {
     if (serverOnlyMode) return false;
@@ -364,7 +397,7 @@ export function CodexLaunchPreviewModal({
         return false;
       }
       const providerAccounts = eligibleCodexModelRoutingAccounts(accounts);
-      for (const route of routingRoutes) {
+      for (const route of normalizedRoutingRoutes) {
         const namespace = route.namespace.trim().toLowerCase();
         if (
           !/^[a-z0-9][a-z0-9_-]{1,31}$/.test(namespace) ||
@@ -417,7 +450,7 @@ export function CodexLaunchPreviewModal({
       if (routingEnabled) {
         nextModels = syncExperimentalModelsWithRouting(
           models,
-          routingRoutes,
+          normalizedRoutingRoutes,
           accounts,
           true,
         );
@@ -427,6 +460,7 @@ export function CodexLaunchPreviewModal({
         ? (
             await saveCodexInstanceConfiguration({
               instanceId,
+              bindAccountId: mixedRoutingBindAccountId,
               modelRouting: nextModelRouting,
               deferBindAccountApplication: true,
               experimentalModelCatalogEnabled: nextCatalogEnabled,
@@ -441,6 +475,7 @@ export function CodexLaunchPreviewModal({
             defaultModelId,
           );
       applyLoadedConfig(saved);
+      setRoutingRoutes(normalizedRoutingRoutes);
       setNotice(
         t(
           "codex.modelProviders.quickConfig.saveSuccess",
@@ -474,6 +509,8 @@ export function CodexLaunchPreviewModal({
     routingEnabled,
     routingRoutes,
     serverOnlyMode,
+    mixedRoutingBindAccountId,
+    normalizedRoutingRoutes,
     setError,
     t,
   ]);
