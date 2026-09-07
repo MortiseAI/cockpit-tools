@@ -4337,12 +4337,10 @@
         "speedStandard": "Standard",
         "speedAuto": "Auto",
         "speedUnknown": "Speed unknown",
-        "speedConfirmed": "{{mode}} · confirmed",
-        "speedRequested": "{{mode}} · requested",
+        "speedReported": "{{mode}} · reported",
+        "speedRequested": "{{mode}} requested",
         "speedNotRecorded": "Not recorded",
-        "speedFastNotHonored": "Fast requested → {{mode}}",
-        "speedDetails": "Requested: {{requested}}; upstream reported: {{reported}}",
-        "speedUnconfirmed": "The actual processing tier has not been confirmed by the upstream response."
+        "speedDetails": "Requested: {{requested}}; upstream reported: {{reported}}"
       }
     },
     "apiKey": {

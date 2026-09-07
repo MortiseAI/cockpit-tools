@@ -4337,12 +4337,10 @@
         "speedStandard": "标准",
         "speedAuto": "自动",
         "speedUnknown": "速度未知",
-        "speedConfirmed": "{{mode}} · 已确认",
-        "speedRequested": "{{mode}} · 请求",
+        "speedReported": "{{mode}} · 返回",
+        "speedRequested": "{{mode}} 请求",
         "speedNotRecorded": "未记录",
-        "speedFastNotHonored": "已请求 Fast → {{mode}}",
-        "speedDetails": "请求等级：{{requested}}；上游返回：{{reported}}",
-        "speedUnconfirmed": "上游尚未确认实际处理等级，不能据此判断已使用 Fast。"
+        "speedDetails": "请求等级：{{requested}}；上游返回：{{reported}}"
       }
     },
     "apiKey": {

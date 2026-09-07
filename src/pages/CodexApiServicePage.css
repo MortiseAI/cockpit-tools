@@ -158,12 +158,6 @@
   color: var(--primary);
 }
 
-.codex-api-service-pill.speed-mismatch {
-  border-color: color-mix(in srgb, var(--warning, #d97706) 40%, transparent);
-  background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent);
-  color: var(--warning, #d97706);
-}
-
 .codex-api-service-pill.error {
   border-color: color-mix(in srgb, var(--danger) 24%, transparent);
   background: color-mix(in srgb, var(--danger) 12%, transparent);

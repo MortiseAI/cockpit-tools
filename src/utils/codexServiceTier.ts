@@ -10,7 +10,10 @@ export function resolveServiceTierDisplay(event: {
 }) {
   const requested = normalizeTier(event.serviceTier);
   const reported = normalizeTier(event.responseServiceTier);
-  const tier = reported ?? requested;
+  // The log badge describes the outgoing request. Keep the response value for
+  // details instead of interpreting a differing value as a confirmed downgrade.
+  const tier = requested ?? reported;
+  const source = requested !== null ? 'request' : reported !== null ? 'response' : 'unknown';
   let kind: ServiceTierKind;
   switch (tier) {
     case 'priority':
@@ -27,10 +30,6 @@ export function resolveServiceTierDisplay(event: {
     tier,
     requested,
     reported,
-    fastNotHonored: (requested === 'priority' || requested === 'fast')
-      && reported !== null && reported !== 'auto'
-      && reported !== 'priority' && reported !== 'fast',
-    // "auto" is a selection policy, not a confirmed processing tier.
-    confirmed: reported !== null && reported !== 'auto',
+    source,
   };
 }

@@ -17,26 +17,21 @@ export function CodexServiceTierBadge(props: {
     other: display.tier,
   };
   const label = labels[display.kind];
-  const text = display.fastNotHonored
-    ? t('codex.apiService.logs.speedFastNotHonored', { mode: label, defaultValue: 'Fast requested → {{mode}}' })
-    : display.kind === 'unknown'
+  const text = display.kind === 'unknown'
     ? label
-    : display.confirmed
-      ? t('codex.apiService.logs.speedConfirmed', { mode: label, defaultValue: '{{mode}} · confirmed' })
-      : t('codex.apiService.logs.speedRequested', { mode: label, defaultValue: '{{mode}} · requested' });
+    : display.source === 'request'
+      ? t('codex.apiService.logs.speedRequested', { mode: label, defaultValue: '{{mode}} requested' })
+      : t('codex.apiService.logs.speedReported', { mode: label, defaultValue: '{{mode}} · reported' });
   const missing = t('codex.apiService.logs.speedNotRecorded', 'Not recorded');
-  const title = [
-    t('codex.apiService.logs.speedDetails', {
-      requested: display.requested ?? missing,
-      reported: display.reported ?? missing,
-      defaultValue: 'Requested: {{requested}}; upstream reported: {{reported}}',
-    }),
-    !display.confirmed && t('codex.apiService.logs.speedUnconfirmed', 'The actual processing tier has not been confirmed by the upstream response.'),
-  ].filter(Boolean).join('\n');
+  const title = t('codex.apiService.logs.speedDetails', {
+    requested: display.requested ?? missing,
+    reported: display.reported ?? missing,
+    defaultValue: 'Requested: {{requested}}; upstream reported: {{reported}}',
+  });
 
   return (
     <span
-      className={`codex-api-service-pill ${display.fastNotHonored ? 'speed-mismatch' : display.kind === 'fast' ? 'speed-fast' : 'muted'}`}
+      className={`codex-api-service-pill ${display.kind === 'fast' ? 'speed-fast' : 'muted'}`}
       title={title}
       aria-label={`${text}. ${title}`}
     >
