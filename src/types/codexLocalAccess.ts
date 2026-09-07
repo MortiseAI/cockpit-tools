@@ -205,6 +205,13 @@ export interface CodexLocalAccessStatsWindow {
   accounts: CodexLocalAccessAccountStats[];
   models: CodexLocalAccessModelStats[];
   apiKeys: CodexLocalAccessApiKeyStats[];
+  trend: CodexLocalAccessUsageTrendPoint[];
+  trendHourly: boolean;
+}
+
+export interface CodexLocalAccessUsageTrendPoint {
+  bucketStart: number;
+  usage: CodexLocalAccessUsageStats;
 }
 
 export interface CodexLocalAccessAccountWindowQuery {

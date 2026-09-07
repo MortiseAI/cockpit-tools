@@ -16,6 +16,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -178,6 +179,7 @@ export function CodexLaunchPreviewModal({
   const [modelConfigSnapshot, setModelConfigSnapshot] =
     useState<ModelConfigSnapshot | null>(null);
   const [routingEnabled, setRoutingEnabled] = useState(false);
+  const persistRoutingDisableRef = useRef(false);
   const [routingRoutes, setRoutingRoutes] = useState<CodexInstanceApiRoute[]>(
     [],
   );
@@ -523,6 +525,12 @@ export function CodexLaunchPreviewModal({
     setError,
     t,
   ]);
+
+  useEffect(() => {
+    if (!persistRoutingDisableRef.current || routingEnabled) return;
+    persistRoutingDisableRef.current = false;
+    void persistDraft();
+  }, [persistDraft, routingEnabled]);
 
   const handleExecute = useCallback(
     async (launchAfterSwitch: boolean) => {
@@ -1139,6 +1147,9 @@ export function CodexLaunchPreviewModal({
                     accounts={accounts}
                     running={Boolean(selectedInstance?.running)}
                     onEnabledChange={(nextEnabled) => {
+                      if (!nextEnabled) {
+                        persistRoutingDisableRef.current = true;
+                      }
                       setRoutingEnabled(nextEnabled);
                       setModels((prevModels) =>
                         syncExperimentalModelsWithRouting(

@@ -1456,6 +1456,7 @@ fn sidecar_quota_pool_state_value(collection: &CodexLocalAccessCollection) -> Va
                     quota.weekly_reset_time,
                 ),
                 "updatedAt": account.usage_updated_at,
+                "cooldown": account_quota_cooldown(&account, now_ms()),
             }),
         );
     }
@@ -1507,7 +1508,9 @@ fn sidecar_account_manifest_value(
         "upstreamApiKey": account.openai_api_key.as_deref().unwrap_or_default(),
         "planRank": resolve_plan_rank(account),
         "remainingQuota": resolve_remaining_quota(account),
+        "quotaCooldown": account_quota_cooldown(account, now_ms()),
         "subscriptionExpiryMs": resolve_subscription_expiry_ms(account),
+        "gptReserveAllowed": account_has_gpt_reserve_entitlement(account),
         "imageGenerationPolicy": match collection.image_generation_account_policies.get(&account.id) {
             Some(CodexLocalAccessImageGenerationPolicy::Enabled) => "enabled",
             Some(CodexLocalAccessImageGenerationPolicy::Disabled) => "disabled",
@@ -2059,6 +2062,7 @@ async fn prepare_sidecar_launch_config(
             health_snapshot,
             default_service_tier,
             HashMap::new(),
+            true,
             Some(preparation),
         )
     })
@@ -2079,6 +2083,7 @@ async fn prepare_sidecar_launch_config_in_dir(
         health_snapshot,
         default_service_tier,
         account_overrides,
+        false,
         None,
     )
 }
@@ -2089,6 +2094,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
     health_snapshot: HashMap<String, RuntimeAccountHealth>,
     default_service_tier: Option<&str>,
     account_overrides: HashMap<String, CodexAccount>,
+    api_service: bool,
     preparation: Option<GatewayPreparationContext>,
 ) -> Result<SidecarLaunchConfig, String> {
     let auths_dir = sidecar_auths_dir(&base_dir);
@@ -2286,7 +2292,11 @@ fn prepare_sidecar_launch_config_in_dir_sync(
     config.insert("commercial-mode".to_string(), json!(true));
     config.insert(
         "codex".to_string(),
-        json!({ "optimize-multi-agent-v2": true }),
+        json!({
+            "optimize-multi-agent-v2": true,
+            "stream-bootstrap-buffering": api_service,
+            "api-service-compatibility": api_service,
+        }),
     );
     config.insert("ws-auth".to_string(), json!(true));
     config.insert("disable-auth-auto-refresh".to_string(), json!(true));
