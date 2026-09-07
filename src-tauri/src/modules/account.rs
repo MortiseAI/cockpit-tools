@@ -26,10 +26,6 @@ static LIST_ACCOUNTS_LOAD_LOCK: std::sync::LazyLock<Mutex<()>> =
 const QUOTA_ALERT_COOLDOWN_SECONDS: i64 = 300;
 const LIST_ACCOUNTS_CACHE_TTL_MS: u64 = 800;
 
-// 使用与 AntigravityCockpit 插件相同的数据目录
-const DATA_DIR: &str = ".antigravity_cockpit";
-const DEV_DATA_DIR: &str = ".antigravity_cockpit_dev";
-const DATA_DIR_ENV: &str = "COCKPIT_TOOLS_DATA_DIR";
 const PROFILE_ENV: &str = "COCKPIT_TOOLS_PROFILE";
 
 const ACCOUNTS_INDEX: &str = "accounts.json";
@@ -191,7 +187,7 @@ fn deserialize_account_from_storage(
     Ok(account)
 }
 
-/// 获取数据目录路径
+/// 开发标识保留原有行为，不再决定数据目录。
 pub fn is_dev_profile() -> bool {
     std::env::var(PROFILE_ENV)
         .map(|value| value.trim().eq_ignore_ascii_case("dev"))
@@ -199,20 +195,7 @@ pub fn is_dev_profile() -> bool {
 }
 
 pub fn resolve_data_dir() -> Result<PathBuf, String> {
-    if let Ok(raw) = std::env::var(DATA_DIR_ENV) {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
-        }
-    }
-
-    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-    let dir_name = if is_dev_profile() {
-        DEV_DATA_DIR
-    } else {
-        DATA_DIR
-    };
-    Ok(home.join(dir_name))
+    crate::modules::data_dir::resolve_data_dir()
 }
 
 pub fn get_data_dir() -> Result<PathBuf, String> {

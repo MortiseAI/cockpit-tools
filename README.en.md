@@ -284,6 +284,7 @@ These are the most common security questions answered directly:
   - `~/.grok`: the official Grok CLI default instance and current sign-in `auth.json`
   - `~/.zcode/v2`: ZCode encrypted credentials for the current official sign-in and quota cache
   - local app data folder under `com.antigravity.cockpit-tools`: Codex / GitHub Copilot / Windsurf / Kiro / Cursor / Grok CLI / CodeBuddy / CodeBuddy CN / Qoder / Trae suite / Zed / ZCode multi-account data, etc.; Grok CLI account details, managed profiles, and instance configuration are also stored here
+- **Development and production share Cockpit storage**: both default to `~/.antigravity_cockpit`; `COCKPIT_TOOLS_PROFILE=dev` no longer selects a separate directory. Follow the [shared-directory migration guide](docs/SHARED_DATA_DIRECTORY.md) to retain existing development accounts, keys, and gateway settings. Set `COCKPIT_TOOLS_DATA_DIR` explicitly when an isolated test store is needed.
 - **Grok CLI credentials are not encrypted**: access and refresh tokens are stored locally as plaintext JSON and rely primarily on operating-system account isolation and local file permissions. On Unix systems, credential directories are set to `0700` and credential files to `0600`. Redacted exports contain no tokens and cannot serve as sign-in backups.
 - **WebSocket is local-only by default**: binds to `127.0.0.1`, default port `19528`; you can disable it or change the port in Settings.
 - **When network access happens**: OAuth login, token refresh, quota fetching, update checks, and other official API requests.

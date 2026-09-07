@@ -46,6 +46,8 @@ pub mod config;
 pub mod cursor_account;
 pub mod cursor_instance;
 pub mod cursor_oauth;
+#[path = "../../../crates/cockpit-core/src/modules/data_dir.rs"]
+pub mod data_dir;
 pub mod db;
 pub mod deferred_account_rewrite;
 pub mod diagnostics;

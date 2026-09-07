@@ -23,6 +23,7 @@ pub mod config;
 pub mod cursor_account;
 pub mod cursor_instance;
 pub mod cursor_oauth;
+pub mod data_dir;
 pub mod db;
 // pub mod external_import;
 // pub mod floating_card_window;

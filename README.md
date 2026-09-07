@@ -285,6 +285,7 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
   - `~/.grok`：Grok CLI 官方默认实例与当前登录 `auth.json`
   - `~/.zcode/v2`：ZCode 官方当前登录加密凭据与配额缓存
   - 系统本地应用数据目录下 `com.antigravity.cockpit-tools`：Codex / GitHub Copilot / Windsurf / Kiro / Cursor / Grok CLI / CodeBuddy / CodeBuddy CN / Qoder / Trae 套件 / Zed / ZCode 多账号数据等；Grok CLI 的账号详情、受管 profile 与实例配置也保存在此
+- **开发版与正式版共用 Cockpit 数据目录**：默认统一为 `~/.antigravity_cockpit`，`COCKPIT_TOOLS_PROFILE=dev` 不再切换目录。已有开发版数据可按[共享目录迁移说明](docs/SHARED_DATA_DIRECTORY.md)保留账号、密钥和网关配置；需要独立测试目录时显式设置 `COCKPIT_TOOLS_DATA_DIR`。
 - **Grok CLI 凭据不加密**：access token/refresh token 以明文 JSON 保存在本机，主要依赖操作系统账号隔离与本地文件权限保护；Unix 系统上凭据目录设为 `0700`、凭据文件设为 `0600`。脱敏导出不包含 token，不能作为登录备份
 - **WebSocket 默认仅本机访问**：监听 `127.0.0.1`，默认端口 `19528`，可在设置中关闭或改端口。
 - **什么时候会联网**：OAuth 登录、Token 刷新、配额查询、版本更新检查等官方接口请求。
