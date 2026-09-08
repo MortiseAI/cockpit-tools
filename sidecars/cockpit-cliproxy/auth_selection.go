@@ -1382,7 +1382,7 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 	if strings.TrimSpace(serviceTier) == "" {
 		serviceTier = record.ServiceTier
 	}
-	p.tracker.record(usagePayload{
+	payload := usagePayload{
 		Type:                "usage",
 		RequestID:           internallogging.GetRequestID(ctx),
 		Provider:            record.Provider,
@@ -1412,7 +1412,12 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 			TokenBreakdown:  record.Detail.TokenBreakdown,
 		},
 		RequestedAtMS: record.RequestedAt.UnixMilli(),
-	})
+	}
+	if sink, ok := ctx.Value(websocketUsageContextKey).(*websocketUsageSink); ok {
+		sink.record(record, payload)
+		return
+	}
+	p.tracker.record(payload)
 }
 
 func (p *usagePlugin) accountForRecord(record coreusage.Record) *accountSpec {

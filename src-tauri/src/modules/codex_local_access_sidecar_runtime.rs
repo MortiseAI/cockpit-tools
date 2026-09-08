@@ -115,6 +115,137 @@ fn sidecar_auto_restart_control() -> &'static Mutex<SidecarAutoRestartControl> {
     SIDECAR_AUTO_RESTART_CONTROL.get_or_init(|| Mutex::new(SidecarAutoRestartControl::default()))
 }
 
+fn sidecar_crash_recovery_control() -> &'static Mutex<SidecarAutoRestartControl> {
+    SIDECAR_CRASH_RECOVERY_CONTROL.get_or_init(|| Mutex::new(SidecarAutoRestartControl::default()))
+}
+
+fn reset_sidecar_restart_window_if_expired(control: &mut SidecarAutoRestartControl, now: Instant) {
+    if control
+        .window_started_at
+        .is_none_or(|started_at| now.duration_since(started_at) >= SIDECAR_AUTO_RESTART_WINDOW)
+    {
+        control.window_started_at = Some(now);
+        control.last_started_at = None;
+        control.attempts = 0;
+    }
+}
+
+fn sidecar_crash_recovery_allowed(
+    collection_enabled: bool,
+    running: bool,
+    expected_generation: u64,
+    current_generation: u64,
+    stop_requests: usize,
+) -> bool {
+    collection_enabled
+        && !running
+        && stop_requests == 0
+        && expected_generation == current_generation
+}
+
+async fn gateway_sidecar_crash_recovery_is_allowed(expected_generation: u64) -> bool {
+    if GATEWAY_STOP_REQUESTS.load(Ordering::SeqCst) > 0
+        || gateway_lifecycle_generation_changed(expected_generation)
+    {
+        return false;
+    }
+    let runtime = gateway_runtime().lock().await;
+    sidecar_crash_recovery_allowed(
+        runtime
+            .collection
+            .as_ref()
+            .map(|collection| collection.enabled)
+            .unwrap_or(false),
+        runtime.running,
+        expected_generation,
+        current_gateway_lifecycle_generation(),
+        GATEWAY_STOP_REQUESTS.load(Ordering::SeqCst),
+    )
+}
+
+fn schedule_sidecar_crash_recovery(process_exit: SidecarProcessExit) {
+    let now = Instant::now();
+    let initial_delay = {
+        let Ok(mut control) = sidecar_crash_recovery_control().lock() else {
+            logger::log_codex_api_warn(
+                "[CodexLocalAccess] Sidecar 崩溃恢复控制锁不可用，跳过本次恢复",
+            );
+            return;
+        };
+        reset_sidecar_restart_window_if_expired(&mut control, now);
+        if control.in_flight || control.attempts >= SIDECAR_AUTO_RESTART_MAX_ATTEMPTS {
+            return;
+        }
+        control.in_flight = true;
+        control
+            .last_started_at
+            .and_then(|started_at| {
+                SIDECAR_CRASH_RECOVERY_MIN_INTERVAL.checked_sub(now.duration_since(started_at))
+            })
+            .unwrap_or_default()
+    };
+
+    tauri::async_runtime::spawn(async move {
+        if !initial_delay.is_zero() {
+            tokio::time::sleep(initial_delay).await;
+        }
+
+        let mut recovered = false;
+        loop {
+            if !gateway_sidecar_crash_recovery_is_allowed(process_exit.generation).await {
+                break;
+            }
+
+            let attempt = {
+                let Ok(mut control) = sidecar_crash_recovery_control().lock() else {
+                    break;
+                };
+                let now = Instant::now();
+                reset_sidecar_restart_window_if_expired(&mut control, now);
+                if control.attempts >= SIDECAR_AUTO_RESTART_MAX_ATTEMPTS {
+                    break;
+                }
+                control.attempts = control.attempts.saturating_add(1);
+                control.last_started_at = Some(now);
+                control.attempts
+            };
+
+            logger::log_codex_api_warn(&format!(
+                "[CodexLocalAccess] API 服务 sidecar 异常退出，开始后台恢复: pid={}, generation={}, attempt={}, reason={}",
+                process_exit.pid, process_exit.generation, attempt, process_exit.message
+            ));
+            match ensure_gateway_matches_runtime().await {
+                Ok(()) if gateway_runtime().lock().await.running => {
+                    logger::log_codex_api_info(
+                        "[CodexLocalAccess] API 服务 sidecar 已自动恢复，账号、API Key 和端口配置保持不变",
+                    );
+                    recovered = true;
+                    break;
+                }
+                Ok(()) => logger::log_codex_api_warn(
+                    "[CodexLocalAccess] API 服务 sidecar 恢复未进入运行态，将按限制重试",
+                ),
+                Err(error) => logger::log_codex_api_warn(&format!(
+                    "[CodexLocalAccess] API 服务 sidecar 自动恢复失败: attempt={}, error={}",
+                    attempt, error
+                )),
+            }
+
+            tokio::time::sleep(SIDECAR_CRASH_RECOVERY_MIN_INTERVAL).await;
+        }
+
+        if let Ok(mut control) = sidecar_crash_recovery_control().lock() {
+            control.in_flight = false;
+        }
+        if !recovered && gateway_sidecar_crash_recovery_is_allowed(process_exit.generation).await {
+            logger::log_codex_api_warn(
+                "[CodexLocalAccess] API 服务 sidecar 自动恢复已达到限制，保留错误状态等待用户处理",
+            );
+        }
+        emit_local_access_state_updated();
+    });
+}
+
 fn schedule_sidecar_auto_restart(event: &SidecarUsageEvent) {
     if !sidecar_usage_event_should_auto_restart(event) {
         return;
@@ -476,7 +607,7 @@ async fn request_sidecar_reset_scheduler(
     if account_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let client = build_localhost_http_client(Duration::from_secs(10), "账号调度恢复")?;
+    let client = build_localhost_http_client(Duration::from_secs(5), "账号调度恢复")?;
     let url = format!(
         "http://{}:{}/v1/cockpit/accounts/reset-scheduler",
         CODEX_LOCAL_ACCESS_DEFAULT_CLIENT_URL_HOST, port
@@ -1259,7 +1390,6 @@ fn write_local_access_profile_model_catalog(
     let content = serde_json::to_string_pretty(&catalog)
         .map_err(|e| format!("生成 Codex API 服务模型目录失败: {}", e))?;
     let catalog_file = CODEX_MANAGED_MODEL_CATALOG_FILE;
-    let content = codex_account::decorate_managed_model_catalog_for_profile(profile_dir, &content)?;
     write_string_atomic(&profile_dir.join(catalog_file), &content)
         .map_err(|e| format!("写入 Codex API 服务模型目录失败: {}", e))?;
     codex_account::cleanup_legacy_managed_model_catalogs(profile_dir);
@@ -1279,6 +1409,38 @@ pub(crate) fn invalidate_codex_model_cache(profile_dir: &Path) -> Result<(), Str
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(format!("清理 Codex 模型缓存失败: {}", error)),
     }
+}
+
+fn write_mixed_model_realtime_sideband_override(
+    profile_dir: &Path,
+    collection: &CodexLocalAccessCollection,
+    api_key: &str,
+) -> Result<(), String> {
+    let is_mixed = collection.api_keys.iter().any(|item| {
+        item.enabled
+            && item.key.trim() == api_key.trim()
+            && item.provider_gateway.is_none()
+            && item.model_routing.as_ref().is_some_and(|routing| {
+                routing.default_route.eq_ignore_ascii_case("oauth")
+            })
+    });
+    if !is_mixed {
+        return Ok(());
+    }
+    let path = profile_config_path(profile_dir);
+    let content = std::fs::read_to_string(&path)
+        .map_err(|error| format!("读取 Codex 语音接管配置失败: {}", error))?;
+    let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&content)
+        .map_err(|error| format!("解析 Codex 语音接管配置失败: {}", error))?;
+    // WebRTC sideband ignores model provider.base_url by default but reuses its
+    // bearer. Keep call creation and sideband on the same gateway/account.
+    // An explicit user override is outside Cockpit's ownership.
+    if doc.get("experimental_realtime_ws_base_url").is_some() {
+        return Ok(());
+    }
+    doc["experimental_realtime_ws_base_url"] = value(build_collection_base_url(collection));
+    let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
+    crate::modules::codex_config_format::write_codex_config_toml_atomic(&path, &content)
 }
 
 async fn write_local_access_profile_takeover(
@@ -1308,6 +1470,7 @@ async fn write_local_access_profile_takeover(
         supports_websockets,
     );
     codex_account::write_account_bundle_to_dir(profile_dir, &runtime_account)?;
+    write_mixed_model_realtime_sideband_override(profile_dir, collection, &runtime_api_key)?;
     write_local_access_profile_model_catalog(
         profile_dir,
         supports_websockets,

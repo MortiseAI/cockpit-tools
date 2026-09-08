@@ -2193,28 +2193,42 @@ pub async fn reevaluate_bound_oauth_quota_reserve_after_refresh(
     }
 }
 
-fn refresh_gateway_process_status(runtime: &mut GatewayRuntime) {
+fn refresh_gateway_process_status(runtime: &mut GatewayRuntime) -> Option<SidecarProcessExit> {
     if !runtime.running {
-        return;
+        return None;
     }
     let Some(child) = runtime.sidecar_child.as_mut() else {
-        return;
+        return None;
     };
+    let pid = child.id().unwrap_or_default();
+    let generation = runtime
+        .sidecar_generation
+        .unwrap_or_else(current_gateway_lifecycle_generation);
     let message = match child.try_wait() {
         Ok(Some(status)) => Some(format!("API 服务 sidecar 已退出: {}", status)),
         Ok(None) => None,
-        Err(error) => Some(format!("检查 API 服务 sidecar 状态失败: {}", error)),
+        Err(error) => {
+            let message = format!("检查 API 服务 sidecar 状态失败: {}", error);
+            log_gateway_mode_warn(CodexLocalAccessGatewayMode::Sidecar, &message);
+            return None;
+        }
     };
     let Some(message) = message else {
-        return;
+        return None;
     };
     log_gateway_mode_warn(CodexLocalAccessGatewayMode::Sidecar, &message);
     runtime.running = false;
     runtime.actual_port = None;
     runtime.actual_bind_host = None;
     runtime.sidecar_config_fingerprint = None;
-    runtime.last_error = Some(message);
+    runtime.last_error = Some(message.clone());
+    runtime.sidecar_generation = None;
     runtime.sidecar_child = None;
+    Some(SidecarProcessExit {
+        pid,
+        generation,
+        message,
+    })
 }
 
 async fn ensure_gateway_matches_runtime_locked() -> Result<(), String> {

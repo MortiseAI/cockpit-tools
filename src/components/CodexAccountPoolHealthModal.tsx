@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { CircleAlert, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { CodexAccount } from "../types/codex";
@@ -153,6 +153,11 @@ export function CodexAccountPoolHealthModal({
     scrollKey: recoveryErrorScrollKey,
     set: setRecoveryError,
   } = useModalErrorState();
+  const [recoveringAccountIds, setRecoveringAccountIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [recoveringAll, setRecoveringAll] = useState(false);
+  const recoveryInFlightRef = useRef(false);
   const poolMemberStatuses = useMemo(() => {
     const healthById = new Map(
       accountHealth.map((health) => [health.accountId, health]),
@@ -351,16 +356,32 @@ export function CodexAccountPoolHealthModal({
       ),
     ),
   );
-  const runRecovery = async (accountIds: string[]) => {
+  const runRecovery = async (
+    accountIds: string[],
+    source: "single" | "all",
+  ) => {
+    const normalizedAccountIds = Array.from(
+      new Set(accountIds.map((accountId) => accountId.trim()).filter(Boolean)),
+    );
+    if (normalizedAccountIds.length === 0 || recoveryInFlightRef.current) {
+      return;
+    }
+    recoveryInFlightRef.current = true;
     setRecoveryError(null);
+    setRecoveringAccountIds(new Set(normalizedAccountIds));
+    setRecoveringAll(source === "all");
     try {
-      if (accountIds.length === 1) {
-        await onRecover(accountIds[0]);
+      if (normalizedAccountIds.length === 1) {
+        await onRecover(normalizedAccountIds[0]);
       } else {
-        await onRecoverAll(accountIds);
+        await onRecoverAll(normalizedAccountIds);
       }
     } catch (error) {
       setRecoveryError(String(error).replace(/^Error:\s*/, ""));
+    } finally {
+      recoveryInFlightRef.current = false;
+      setRecoveringAccountIds(new Set());
+      setRecoveringAll(false);
     }
   };
   const handleClose = () => {
@@ -438,6 +459,7 @@ export function CodexAccountPoolHealthModal({
                     ? buildCodexAccountPresentation(account, t)
                     : null;
                   const recoverable = isPoolMemberRecoverable(member);
+                  const recovering = recoveringAccountIds.has(member.accountId);
                   const memberKind = poolMemberIssueKind(member);
                   return (
                     <div
@@ -472,14 +494,24 @@ export function CodexAccountPoolHealthModal({
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            onClick={() => void runRecovery([member.accountId])}
-                            disabled={actionBusy}
+                            onClick={() =>
+                              void runRecovery([member.accountId], "single")
+                            }
+                            disabled={actionBusy || recoveringAccountIds.size > 0}
                           >
-                            <RefreshCw size={13} />
-                            {t(
-                              "codex.localAccess.accountPoolHealth.dialog.recover",
-                              "恢复",
-                            )}
+                            <RefreshCw
+                              size={13}
+                              className={recovering ? "loading-spinner" : undefined}
+                            />
+                            {recovering
+                              ? t(
+                                  "codex.localAccess.accountPoolHealth.dialog.recovering",
+                                  "恢复中…",
+                                )
+                              : t(
+                                  "codex.localAccess.accountPoolHealth.dialog.recover",
+                                  "恢复",
+                                )}
                           </button>
                         )}
                       </div>
@@ -529,14 +561,28 @@ export function CodexAccountPoolHealthModal({
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        onClick={() => void runRecovery([issue.accountId])}
-                        disabled={actionBusy}
+                        onClick={() =>
+                          void runRecovery([issue.accountId], "single")
+                        }
+                        disabled={actionBusy || recoveringAccountIds.size > 0}
                       >
-                        <RefreshCw size={14} />
-                        {t(
-                          "codex.localAccess.accountPoolHealth.dialog.recover",
-                          "恢复",
-                        )}
+                        <RefreshCw
+                          size={14}
+                          className={
+                            recoveringAccountIds.has(issue.accountId)
+                              ? "loading-spinner"
+                              : undefined
+                          }
+                        />
+                        {recoveringAccountIds.has(issue.accountId)
+                          ? t(
+                              "codex.localAccess.accountPoolHealth.dialog.recovering",
+                              "恢复中…",
+                            )
+                          : t(
+                              "codex.localAccess.accountPoolHealth.dialog.recover",
+                              "恢复",
+                            )}
                       </button>
                     )}
                   </div>
@@ -567,12 +613,16 @@ export function CodexAccountPoolHealthModal({
                   Array.from(
                     new Set([...recoverableAccountIds, ...poolMemberRecoveryIds]),
                   ),
+                  "all",
                 )
               }
-              disabled={actionBusy}
+              disabled={actionBusy || recoveringAccountIds.size > 0}
             >
-              <RefreshCw size={15} />
-              {actionBusy
+              <RefreshCw
+                size={15}
+                className={recoveringAll ? "loading-spinner" : undefined}
+              />
+              {recoveringAll
                 ? t(
                     "codex.localAccess.accountPoolHealth.dialog.recovering",
                     "恢复中…",
