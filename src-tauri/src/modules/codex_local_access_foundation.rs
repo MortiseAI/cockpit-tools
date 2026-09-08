@@ -115,8 +115,9 @@ const SIDECAR_SERVICE_TIER_SUPPORTED_PAYLOAD_FORMATS: &[&str] =
 const CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST: &str = "127.0.0.1";
 const CODEX_LOCAL_ACCESS_LAN_BIND_HOST: &str = "0.0.0.0";
 const CODEX_LOCAL_ACCESS_DEFAULT_CLIENT_URL_HOST: &str = "localhost";
-const CODEX_LOCAL_ACCESS_API_PORT_ENV: &str = "COCKPIT_TOOLS_API_PORT";
-const CODEX_LOCAL_ACCESS_DEV_DEFAULT_PORT: u16 = 1456;
+// The public API endpoint is identical in development and release builds.
+const CODEX_LOCAL_ACCESS_FIXED_PORT: u16 = 52340;
+const CODEX_LOCAL_ACCESS_FIXED_API_KEY: &str = "agt_codex_rb3eWSkWrLjVMUY0nS6n0KPSNPkGI6dU";
 const CODEX_LOCAL_ACCESS_TAKEOVER_BACKUP_VERSION: u32 = 1;
 const CODEX_LOCAL_ACCESS_RUNTIME_PROVIDER_ID: &str = "codex_local_access";
 const CODEX_LOCAL_ACCESS_RUNTIME_ACCOUNT_ID: &str = "codex_local_access_runtime";
@@ -197,7 +198,6 @@ const BOUND_OAUTH_QUOTA_RESERVE_REQUEST_REFRESH_MIN_INTERVAL: Duration = Duratio
 const GATEWAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const GATEWAY_PORT_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const GATEWAY_PORT_RELEASE_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const LOCAL_ACCESS_PORT_RECOVERY_ATTEMPTS: usize = 5;
 const GATEWAY_ACCOUNT_REFRESH_CONCURRENCY: usize = 4;
 const GATEWAY_ACCOUNT_REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 const GATEWAY_PREPARATION_CANCELLED: &str = "GATEWAY_PREPARATION_CANCELLED";
@@ -1517,6 +1517,7 @@ fn sync_runtime_collection(
     runtime: &mut GatewayRuntime,
     mut collection: CodexLocalAccessCollection,
 ) {
+    enforce_fixed_local_access_endpoint(&mut collection);
     if let Some(current) = runtime.collection.as_ref() {
         for api_key in &mut collection.api_keys {
             if let Some(current_api_key) =

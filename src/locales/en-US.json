@@ -2583,6 +2583,7 @@
       "cardHint": "Notes saved. Finish OAuth to use this account."
     },
     "localAccess": {
+      "fixedEndpointHint": "The address, port and primary key are fixed for both development and release builds.",
       "title": "API Service",
       "entryAction": "Add to API Service",
       "removeAction": "Remove from API",

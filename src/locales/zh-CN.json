@@ -2583,6 +2583,7 @@
       "cardHint": "备注已保存，完成 OAuth 后即可使用"
     },
     "localAccess": {
+      "fixedEndpointHint": "地址、端口和主密钥已固定，开发模式与发布模式保持一致。",
       "launchModeLabel": "启动模式",
       "globalProxyMode": "全局代理",
       "serverOnlyMode": "仅启动 API 服务",

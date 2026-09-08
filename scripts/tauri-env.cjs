@@ -20,6 +20,18 @@ function createTauriEnv(overrides = {}) {
     ...overrides,
   };
 
+  // Windows environment keys are case-insensitive, but this plain object is not.
+  // Normalize Path before adding tools so child processes retain the system PATH.
+  if (process.platform === 'win32') {
+    const pathKeys = Object.keys(env).filter((key) => key.toLowerCase() === 'path');
+    const overrideKey = Object.keys(overrides).find((key) => key.toLowerCase() === 'path');
+    const currentPath = env[overrideKey || pathKeys[0]] || '';
+    for (const key of pathKeys) {
+      delete env[key];
+    }
+    env.PATH = currentPath;
+  }
+
   const cargoHome = env.CARGO_HOME || path.join(os.homedir(), '.cargo');
   const cargoBinPath = path.join(cargoHome, 'bin');
   const cargoExecutable = path.join(

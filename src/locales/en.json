@@ -2583,6 +2583,7 @@
       "cardHint": "Notes saved. Finish OAuth to use this account."
     },
     "localAccess": {
+      "fixedEndpointHint": "The address, port and primary key are fixed for both development and release builds.",
       "launchModeLabel": "Launch mode",
       "globalProxyMode": "Global proxy",
       "serverOnlyMode": "Start API service only",

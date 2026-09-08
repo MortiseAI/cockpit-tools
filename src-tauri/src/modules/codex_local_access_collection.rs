@@ -30,26 +30,53 @@ fn allocate_random_local_port(bind_host: &str) -> Result<u16, String> {
         .map_err(|e| format!("读取本地接入端口失败: {}", e))
 }
 
-fn configured_initial_local_access_port() -> Option<u16> {
-    if let Ok(raw) = std::env::var(CODEX_LOCAL_ACCESS_API_PORT_ENV) {
-        if let Ok(port) = raw.trim().parse::<u16>() {
-            if port > 0 {
-                return Some(port);
-            }
-        }
-    }
-
-    if account::is_dev_profile() {
-        return Some(CODEX_LOCAL_ACCESS_DEV_DEFAULT_PORT);
-    }
-
-    None
+fn allocate_initial_local_port(_bind_host: &str) -> Result<u16, String> {
+    Ok(CODEX_LOCAL_ACCESS_FIXED_PORT)
 }
 
-fn allocate_initial_local_port(bind_host: &str) -> Result<u16, String> {
-    configured_initial_local_access_port()
-        .map(Ok)
-        .unwrap_or_else(|| allocate_random_local_port(bind_host))
+// Apply only to the persisted public API service. Provider/test gateways use
+// independent ephemeral ports and credentials, and must not share this listener.
+fn enforce_fixed_local_access_endpoint(collection: &mut CodexLocalAccessCollection) -> bool {
+    let mut changed = normalize_collection_api_keys(collection);
+    if collection.port != CODEX_LOCAL_ACCESS_FIXED_PORT {
+        collection.port = CODEX_LOCAL_ACCESS_FIXED_PORT;
+        changed = true;
+    }
+    if collection.client_base_url_host != CodexLocalAccessClientBaseUrlHost::Localhost {
+        collection.client_base_url_host = CodexLocalAccessClientBaseUrlHost::Localhost;
+        changed = true;
+    }
+
+    // Preserve the existing primary key's identity, usage and routing policy.
+    // Reuse a previously fixed key if present, keeping other named keys intact.
+    let primary_index = collection
+        .api_keys
+        .iter()
+        .position(|item| item.key == CODEX_LOCAL_ACCESS_FIXED_API_KEY)
+        .or_else(|| {
+            collection
+                .api_keys
+                .iter()
+                .position(|item| item.key == collection.api_key)
+        })
+        .unwrap_or(0);
+    if primary_index != 0 {
+        let primary = collection.api_keys.remove(primary_index);
+        collection.api_keys.insert(0, primary);
+        changed = true;
+    }
+    let primary = &mut collection.api_keys[0];
+    if primary.key != CODEX_LOCAL_ACCESS_FIXED_API_KEY || !primary.enabled {
+        primary.key = CODEX_LOCAL_ACCESS_FIXED_API_KEY.to_string();
+        primary.enabled = true;
+        primary.updated_at = now_ms();
+        changed = true;
+    }
+    if collection.api_key != CODEX_LOCAL_ACCESS_FIXED_API_KEY {
+        collection.api_key = CODEX_LOCAL_ACCESS_FIXED_API_KEY.to_string();
+        changed = true;
+    }
+    changed
 }
 
 fn load_collection_from_disk() -> Result<Option<CodexLocalAccessCollection>, String> {
@@ -88,8 +115,10 @@ fn load_collection_from_disk() -> Result<Option<CodexLocalAccessCollection>, Str
 }
 
 fn save_collection_to_disk(collection: &CodexLocalAccessCollection) -> Result<(), String> {
+    let mut collection = collection.clone();
+    enforce_fixed_local_access_endpoint(&mut collection);
     let path = local_access_file_path()?;
-    let content = serde_json::to_string_pretty(collection)
+    let content = serde_json::to_string_pretty(&collection)
         .map_err(|e| format!("序列化本地接入配置失败: {}", e))?;
     write_string_atomic(&path, &content)
 }
@@ -1103,12 +1132,12 @@ pub fn format_gateway_bind_error_message(
 ) -> String {
     if error.kind() == std::io::ErrorKind::AddrInUse {
         let mut message = format!(
-            "启动本地接入服务失败: {}:{} 已被占用，请先清理端口或改用其他端口（{}）",
+            "启动本地接入服务失败: {}:{} 已被占用，请先清理端口（{}）",
             bind_host, port, error
         );
         if port_in_reserved_ranges(port, reserved_ranges) {
             message.push_str(&format!(
-                "。提示：端口 {} 可能处于 Windows 排除/保留端口范围（Hyper-V/WSL 等），请换端口或用 netsh 查看 excludedportrange",
+                "。提示：端口 {} 可能处于 Windows 排除/保留端口范围（Hyper-V/WSL 等），可用 netsh 查看 excludedportrange",
                 port
             ));
         }
@@ -1749,7 +1778,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 enabled: false,
                 launch_mode: Default::default(),
                 port: allocate_initial_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
-                api_key: generate_local_api_key(),
+                api_key: CODEX_LOCAL_ACCESS_FIXED_API_KEY.to_string(),
                 api_keys: Vec::new(),
                 access_scope: CodexLocalAccessScope::Localhost,
                 client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
@@ -1792,7 +1821,8 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
             let previous_pricing_version = collection.model_pricing_version;
             // Cold start must not list/decrypt every Codex account before publishing
             // runtime. Membership pruning runs in ensure_collection_account_sanitize_started.
-            let changed = sanitize_collection_structure(collection)?;
+            let mut changed = sanitize_collection_structure(collection)?;
+            changed |= enforce_fixed_local_access_endpoint(collection);
             pricing_book_resealed = previous_pricing_version < DEFAULT_MODEL_PRICING_VERSION;
             persist_after_load = persist_after_load || changed;
         }
@@ -2187,96 +2217,7 @@ fn refresh_gateway_process_status(runtime: &mut GatewayRuntime) {
     runtime.sidecar_child = None;
 }
 
-fn is_retryable_sidecar_bind_error(error: &str) -> bool {
-    let normalized = error.to_ascii_lowercase();
-    normalized.contains("listen tcp")
-        && (normalized.contains("bind:")
-            || normalized.contains("address already in use")
-            || normalized.contains("access permissions")
-            || normalized.contains("permission denied"))
-}
-
-async fn persist_recovered_local_access_port(new_port: u16) -> Result<u16, String> {
-    let mut collection = {
-        let runtime = gateway_runtime().lock().await;
-        runtime
-            .collection
-            .clone()
-            .ok_or_else(|| "本地接入集合尚未创建".to_string())?
-    };
-    let previous_port = collection.port;
-    if previous_port == new_port {
-        return Ok(previous_port);
-    }
-
-    collection.port = new_port;
-    collection.updated_at = now_ms();
-    let collection_to_save = collection.clone();
-    tauri::async_runtime::spawn_blocking(move || save_collection_to_disk(&collection_to_save))
-        .await
-        .map_err(|error| format!("保存端口恢复配置任务失败: {}", error))??;
-
-    let mut runtime = gateway_runtime().lock().await;
-    sync_runtime_collection(&mut runtime, collection);
-    Ok(previous_port)
-}
-
 async fn ensure_gateway_matches_runtime_locked() -> Result<(), String> {
-    let mut last_error = None;
-    for attempt in 0..=LOCAL_ACCESS_PORT_RECOVERY_ATTEMPTS {
-        match ensure_gateway_matches_runtime_once_locked().await {
-            Ok(()) => {
-                if attempt > 0 {
-                    logger::log_codex_api_info(&format!(
-                        "[CodexLocalAccess] API 服务已通过随机端口恢复启动: attempts={}",
-                        attempt
-                    ));
-                }
-                return Ok(());
-            }
-            Err(error) => {
-                let can_retry = attempt < LOCAL_ACCESS_PORT_RECOVERY_ATTEMPTS
-                    && is_retryable_sidecar_bind_error(&error);
-                last_error = Some(error.clone());
-                if !can_retry {
-                    return Err(error);
-                }
-
-                let (bind_host, current_port) = {
-                    let runtime = gateway_runtime().lock().await;
-                    let collection = runtime.collection.as_ref();
-                    (
-                        collection
-                            .map(|item| bind_host_for_collection(item))
-                            .unwrap_or(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)
-                            .to_string(),
-                        collection.map(|item| item.port).unwrap_or_default(),
-                    )
-                };
-                let fallback_port = match allocate_random_local_port(&bind_host) {
-                    Ok(port) if port != current_port => port,
-                    Ok(_) => {
-                        logger::log_codex_api_warn(&format!(
-                            "[CodexLocalAccess] 随机端口与原端口相同，继续重试: attempt={}",
-                            attempt + 1
-                        ));
-                        continue;
-                    }
-                    Err(port_error) => {
-                        return Err(format!("{}；分配随机端口重试失败: {}", error, port_error));
-                    }
-                };
-                let previous_port = persist_recovered_local_access_port(fallback_port).await?;
-                logger::log_codex_api_warn(&format!(
-                    "[CodexLocalAccess] sidecar 端口绑定失败，将自动更换端口重试: old_port={}, new_port={}, attempt={}, error={}",
-                    previous_port,
-                    fallback_port,
-                    attempt + 1,
-                    error
-                ));
-            }
-        }
-    }
-
-    Err(last_error.unwrap_or_else(|| "API 服务启动失败".to_string()))
+    // Binding failures must never change the public API endpoint.
+    ensure_gateway_matches_runtime_once_locked().await
 }

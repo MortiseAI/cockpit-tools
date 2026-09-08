@@ -589,18 +589,6 @@
         );
     }
 
-    #[test]
-    fn sidecar_bind_errors_are_retryable() {
-        assert!(super::is_retryable_sidecar_bind_error(
-            r#"API 服务 sidecar 在 ready 前退出: exit status: 1; ready_seen=false, last_stdout={"message":"listen tcp 127.0.0.1:61331: bind: An attempt was made to access a socket in a way forbidden by its access permissions.","type":"error"}, last_stderr=未捕获 stderr"#
-        ));
-        assert!(super::is_retryable_sidecar_bind_error(
-            "listen tcp 127.0.0.1:61331: bind: address already in use"
-        ));
-        assert!(!super::is_retryable_sidecar_bind_error(
-            "API 服务 sidecar 配置文件解析失败"
-        ));
-    }
 
     use base64::{engine::general_purpose, Engine as _};
     use ed25519_dalek::{pkcs8::EncodePrivateKey, SigningKey};

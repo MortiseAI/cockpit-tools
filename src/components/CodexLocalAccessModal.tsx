@@ -2704,7 +2704,7 @@ export function CodexLocalAccessModal({
                               type="button"
                               className="btn btn-secondary btn-sm"
                               onClick={() => void handleResetKey()}
-                              disabled={saving || testing || starting}
+                              disabled
                             >
                               {saving ? (
                                 <RefreshCw
@@ -2741,7 +2741,7 @@ export function CodexLocalAccessModal({
                               type="button"
                               className="btn btn-secondary btn-sm"
                               onClick={() => void handleSavePort()}
-                              disabled={saving || testing || starting}
+                              disabled
                             >
                               {saving ? (
                                 <RefreshCw
@@ -2765,7 +2765,7 @@ export function CodexLocalAccessModal({
                             onChange={(event) =>
                               setPortInput(event.target.value)
                             }
-                            disabled={saving || testing || starting}
+                            readOnly
                           />
                         </div>
                       </div>

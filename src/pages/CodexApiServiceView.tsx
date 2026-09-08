@@ -613,7 +613,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                       }
                       className="codex-api-service-client-host-select"
                       menuClassName="codex-api-service-client-host-menu"
-                      disabled={busy || !collection}
+                      disabled
                       ariaLabel={t(
                         "codex.localAccess.clientBaseUrlHostLabel",
                         "客户端地址",
@@ -621,8 +621,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     />
                     <small className="codex-api-service-field-hint">
                       {t(
-                        "codex.localAccess.clientBaseUrlHostDesc",
-                        "仅影响写入 Codex Provider 和复制给客户端的 Base URL，不改变服务监听地址。",
+                        "codex.localAccess.fixedEndpointHint",
+                        "地址、端口和主密钥已固定，开发模式与发布模式保持一致。",
                       )}
                     </small>
                   </div>
@@ -670,13 +670,13 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                       max={65535}
                       value={portInput}
                       onChange={(event) => setPortInput(event.target.value)}
-                      disabled={busy}
+                      readOnly
                     />
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
                       onClick={() => void handleSavePort()}
-                      disabled={busy}
+                      disabled
                     >
                       {t("codex.localAccess.portSave", "保存端口")}
                     </button>
@@ -987,7 +987,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                           onClick={() =>
                             void handleToggleApiKey(apiKey.id, !apiKey.enabled)
                           }
-                          disabled={busy}
+                          disabled={busy || apiKey.key === collection?.apiKey}
                           title={
                             apiKey.enabled
                               ? t("common.disable", "Disable")
@@ -1000,7 +1000,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                           type="button"
                           className="folder-icon-btn"
                           onClick={() => void handleRotateApiKey(apiKey.id)}
-                          disabled={busy}
+                          disabled={busy || apiKey.key === collection?.apiKey}
                           title={t(
                             "codex.localAccess.apiKeyRotate",
                             "Rotate Key",
@@ -1013,7 +1013,9 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                           className="folder-icon-btn"
                           onClick={() => void handleDeleteApiKey(apiKey.id)}
                           disabled={
-                            busy || (collection?.apiKeys.length ?? 0) <= 1
+                            busy ||
+                            apiKey.key === collection?.apiKey ||
+                            (collection?.apiKeys.length ?? 0) <= 1
                           }
                           title={t("common.delete", "Delete")}
                         >

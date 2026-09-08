@@ -19,6 +19,7 @@ include!("codex_local_access_recovery.rs");
 
 #[cfg(test)]
 mod tests {
+    include!("codex_local_access_tests_fixed_endpoint.rs");
     include!("codex_local_access_tests_sidecar_gateway.rs");
     include!("codex_local_access_tests_pricing_profile.rs");
     include!("codex_local_access_tests_request_routing.rs");

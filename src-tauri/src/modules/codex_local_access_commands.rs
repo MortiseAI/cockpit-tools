@@ -6,7 +6,7 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         enabled: false,
         launch_mode: Default::default(),
         port: allocate_initial_local_port(CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST)?,
-        api_key: generate_local_api_key(),
+        api_key: CODEX_LOCAL_ACCESS_FIXED_API_KEY.to_string(),
         api_keys: Vec::new(),
         access_scope: CodexLocalAccessScope::Localhost,
         client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
@@ -771,6 +771,9 @@ pub async fn update_local_access_scope(
 pub async fn update_local_access_client_base_url_host(
     client_base_url_host: CodexLocalAccessClientBaseUrlHost,
 ) -> Result<CodexLocalAccessState, String> {
+    if client_base_url_host != CodexLocalAccessClientBaseUrlHost::Localhost {
+        return Err("API 服务客户端地址固定为 localhost，无法修改".to_string());
+    }
     ensure_runtime_loaded().await?;
 
     let maybe_collection = {
@@ -914,49 +917,7 @@ pub async fn remove_local_access_accounts(
 }
 
 pub async fn rotate_local_access_api_key() -> Result<CodexLocalAccessState, String> {
-    ensure_runtime_loaded().await?;
-
-    let maybe_collection = {
-        let runtime = gateway_runtime().lock().await;
-        runtime.collection.clone()
-    };
-
-    let Some(mut collection) = maybe_collection else {
-        return Err("本地接入集合尚未创建".to_string());
-    };
-
-    normalize_collection_api_keys(&mut collection);
-    let now = now_ms();
-    let primary_id = collection
-        .api_keys
-        .iter()
-        .find(|item| item.enabled)
-        .or_else(|| collection.api_keys.first())
-        .map(|item| item.id.clone());
-    if let Some(primary_id) = primary_id {
-        if let Some(api_key) = collection
-            .api_keys
-            .iter_mut()
-            .find(|item| item.id == primary_id)
-        {
-            api_key.key = generate_local_api_key();
-            api_key.updated_at = now;
-            api_key.last_used_at = None;
-            collection.api_key = api_key.key.clone();
-        }
-    } else {
-        collection.api_key = generate_local_api_key();
-    }
-    collection.updated_at = now_ms();
-    save_collection_to_disk(&collection)?;
-
-    {
-        let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
-    }
-
-    ensure_gateway_matches_runtime().await?;
-    snapshot_state().await
+    Err("API 服务主密钥已固定，无法重置".to_string())
 }
 
 pub async fn create_local_access_api_key(
@@ -1094,6 +1055,9 @@ pub async fn update_local_access_api_key(
         collection.api_keys[index].label = normalize_api_key_label(Some(label.as_str()), "API Key");
     }
     if let Some(enabled) = enabled {
+        if !enabled && collection.api_keys[index].key == CODEX_LOCAL_ACCESS_FIXED_API_KEY {
+            return Err("API 服务主密钥已固定，无法禁用".to_string());
+        }
         collection.api_keys[index].enabled = enabled;
     }
     if model_prefix.is_some() {
@@ -1158,6 +1122,9 @@ pub async fn rotate_local_access_named_api_key(
     else {
         return Err("API Key 不存在".to_string());
     };
+    if api_key.key == CODEX_LOCAL_ACCESS_FIXED_API_KEY {
+        return Err("API 服务主密钥已固定，无法重置".to_string());
+    }
     api_key.key = generate_local_api_key();
     api_key.updated_at = now_ms();
     api_key.last_used_at = None;
@@ -1189,6 +1156,13 @@ pub async fn delete_local_access_api_key(
     }
     let api_key_id = api_key_id.trim();
     let before_len = collection.api_keys.len();
+    if collection
+        .api_keys
+        .iter()
+        .any(|item| item.id == api_key_id && item.key == CODEX_LOCAL_ACCESS_FIXED_API_KEY)
+    {
+        return Err("API 服务主密钥已固定，无法删除".to_string());
+    }
     collection.api_keys.retain(|item| item.id != api_key_id);
     if collection.api_keys.len() == before_len {
         return Err("API Key 不存在".to_string());
@@ -1336,7 +1310,7 @@ pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCl
         Ok(count) => count as u32,
         Err(error) => {
             logger::log_codex_api_warn(&format!(
-                "[CodexLocalAccess] 清理旧端口进程失败，将继续尝试启动并准备随机端口兜底: port={}, error={}",
+                "[CodexLocalAccess] 清理端口进程失败，将继续尝试在固定端口启动: port={}, error={}",
                 collection.port, error
             ));
             0
@@ -1355,6 +1329,12 @@ pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCl
 }
 
 pub async fn update_local_access_port(port: u16) -> Result<CodexLocalAccessState, String> {
+    if port != CODEX_LOCAL_ACCESS_FIXED_PORT {
+        return Err(format!(
+            "API 服务端口固定为 {}，无法修改",
+            CODEX_LOCAL_ACCESS_FIXED_PORT
+        ));
+    }
     ensure_runtime_loaded_without_start().await?;
 
     let maybe_collection = {
