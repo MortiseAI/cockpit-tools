@@ -16,6 +16,7 @@ pub const FLOATING_CARD_CONTEXT_CHANGED_EVENT: &str = "floating-card:context-cha
 const MAIN_WINDOW_LABEL: &str = "main";
 const FLOATING_CARD_DEFAULT_MARGIN: i32 = 20;
 const INSTANCE_FLOATING_CARD_WINDOW_OFFSET_STEP: i32 = 28;
+#[cfg(target_os = "macos")]
 const FLOATING_CARD_NATIVE_CORNER_RADIUS: f64 = 15.0;
 static FLOATING_CARD_INSTANCE_CONTEXTS: LazyLock<
     Mutex<HashMap<String, FloatingCardInstanceContext>>,

@@ -99,6 +99,7 @@ pub fn build_codex_client_models_response_with_model_definitions_and_reasoning(
     json!({ "models": models })
 }
 
+#[cfg(test)]
 pub fn apply_model_context_overrides(
     catalog: &mut Value,
     definitions: &[(String, Option<i64>, Option<i64>)],

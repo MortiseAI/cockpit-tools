@@ -1,6 +1,8 @@
 use chrono::Utc;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(any(target_os = "macos", test))]
+use std::collections::HashSet;
 #[cfg(not(target_os = "macos"))]
 use std::ffi::OsString;
 use std::fs;
@@ -340,6 +342,7 @@ fn extract_user_data_dir(arguments: &[OsString]) -> Option<String> {
     None
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn extract_user_data_dir_from_command_line(command_line: &str) -> Option<String> {
     for marker in ["--user-data-dir=", "--user-data-dir "] {
         let Some(start) = command_line.find(marker) else {
@@ -394,6 +397,7 @@ fn is_main_process(process: &sysinfo::Process) -> bool {
         && !is_helper_command(&command)
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_ps_process_line(line: &str) -> Option<(u32, u32, &str)> {
     let line = line.trim_start();
     let pid_end = line.find(char::is_whitespace)?;
@@ -404,6 +408,7 @@ fn parse_ps_process_line(line: &str) -> Option<(u32, u32, &str)> {
     Some((pid, parent_pid, rest[parent_end..].trim_start()))
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn collect_process_entries_from_ps(output: &str) -> Vec<(u32, Option<String>)> {
     let mut main_pids = HashSet::new();
     let mut user_data_by_parent = HashMap::new();

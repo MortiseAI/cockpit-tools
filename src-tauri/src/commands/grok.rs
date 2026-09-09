@@ -1,6 +1,7 @@
 use crate::models::grok::{GrokAccountView, GrokOAuthStartResponse};
 use crate::modules::{config, grok_account, grok_oauth, logger, opencode_auth, process};
 use serde::Serialize;
+#[cfg(unix)]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

@@ -643,15 +643,6 @@ pub async fn fetch_project_metadata_for_token(
     fetch_project_metadata_with_context(&token.access_token, email, &ctx).await
 }
 
-pub async fn fetch_project_id_with_context(
-    access_token: &str,
-    email: &str,
-    ctx: &QuotaCloudCodeContext,
-) -> (Option<String>, Option<String>, Vec<CreditInfo>) {
-    let meta = fetch_project_metadata_with_context(access_token, email, ctx).await;
-    (meta.project_id, meta.subscription_tier, meta.credits)
-}
-
 pub async fn fetch_project_metadata_with_context(
     access_token: &str,
     email: &str,

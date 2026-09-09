@@ -855,6 +855,7 @@ fn collect_path_dirs() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+#[cfg(not(target_os = "windows"))]
 fn append_home_cli_dirs(dirs: &mut Vec<PathBuf>) {
     let Some(home) = std::env::var_os("HOME") else {
         return;
@@ -876,6 +877,7 @@ fn append_home_cli_dirs(dirs: &mut Vec<PathBuf>) {
 
 /// Discover CLI bins managed by nvm / fnm / asdf, which GUI apps often miss
 /// because they inherit a minimal PATH without login-shell hooks.
+#[cfg(any(not(target_os = "windows"), test))]
 fn append_version_manager_cli_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
     if let Some(nvm_bin) = std::env::var_os("NVM_BIN") {
         push_unique_dir(dirs, PathBuf::from(nvm_bin));
@@ -903,6 +905,7 @@ fn append_version_manager_cli_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
     push_unique_dir(dirs, asdf_data.join("shims"));
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 fn append_node_version_bin_dirs(dirs: &mut Vec<PathBuf>, versions_root: PathBuf) {
     let Ok(entries) = std::fs::read_dir(&versions_root) else {
         return;
@@ -2363,9 +2366,11 @@ pub fn get_task(task_id: &str) -> Result<Option<CodexWakeupTask>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use super::build_usable_resolved_binary;
     use super::{
         append_version_manager_cli_dirs, apply_model_preset_migrations,
-        build_usable_resolved_binary, default_model_presets, prune_missing_accounts_from_state,
+        default_model_presets, prune_missing_accounts_from_state,
         retain_existing_account_ids, CodexWakeupModelPreset, CodexWakeupSchedule, CodexWakeupState,
         CodexWakeupTask, GPT_5_5_MODEL_PRESET_MIGRATION_ID, GPT_5_6_MODEL_PRESETS_MIGRATION_ID,
         GPT_6_ASTRA_MODEL_PRESET_MIGRATION_ID, PRUNE_LEGACY_MODEL_PRESETS_MIGRATION_ID,

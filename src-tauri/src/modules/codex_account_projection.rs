@@ -257,14 +257,6 @@ fn write_codex_keychain_value_to_dir(
     Err("测试环境不写入 macOS keychain".to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
-fn write_codex_keychain_value_to_dir(
-    _base_dir: &Path,
-    _payload: &serde_json::Value,
-) -> Result<(), String> {
-    Err("当前平台尚未实现 Codex keyring 写入".to_string())
-}
-
 fn is_disk_full_io_error(error: &std::io::Error) -> bool {
     matches!(error.raw_os_error(), Some(28) | Some(112))
 }
@@ -480,6 +472,7 @@ fn write_auth_json_value(auth_path: &Path, auth_value: &serde_json::Value) -> Re
     })
 }
 
+#[cfg(target_os = "macos")]
 fn remove_auth_json_after_keyring_write(auth_path: &Path) {
     match fs::remove_file(auth_path) {
         Ok(()) => logger::log_info(&format!(

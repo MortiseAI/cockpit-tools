@@ -1584,6 +1584,7 @@ fn build_launch_command(context: &CodexLaunchContext) -> Result<String, String> 
     build_launch_command_text(context, &runtime.binary_path, runtime.node_path.as_deref())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn escape_applescript(value: &str) -> String {
     value
         .replace('\\', "\\\\")
@@ -1706,6 +1707,7 @@ fn build_windows_codex_terminal_launch_plan(
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn build_macos_codex_terminal_launch_plan(
     command: &str,
     terminal: &str,

@@ -147,10 +147,12 @@ fn sync_runtime_quota_cooldowns(runtime: &mut GatewayRuntime, accounts: &[CodexA
     }
 }
 
+#[cfg(test)]
 fn is_quota_cooldown_reason(reason: &str) -> bool {
     reason.trim().to_ascii_lowercase().contains("quota")
 }
 
+#[cfg(test)]
 fn account_recovery_blocked_by_quota(runtime: &GatewayRuntime, account_id: &str, now: i64) -> bool {
     runtime.account_quota_cooldowns.get(account_id).is_some_and(|quota| quota.active(now))
         || runtime.model_cooldowns.iter().any(|(key, cooldown)| {

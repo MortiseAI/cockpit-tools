@@ -297,6 +297,7 @@ pub fn restart_specified_app_by_path(custom_path: &str, timeout_secs: u64) -> Re
     start_custom_app_from_path(&path)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn filter_entries_by_expected_launch_path(
     app_label: &str,
     entries: Vec<(u32, Option<String>)>,
@@ -305,6 +306,7 @@ fn filter_entries_by_expected_launch_path(
     filter_entries_by_expected_launch_path_with_options(app_label, entries, expected, false)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn filter_antigravity_entries_by_expected_launch_path(
     app_label: &str,
     entries: Vec<(u32, Option<String>)>,
@@ -313,6 +315,7 @@ fn filter_antigravity_entries_by_expected_launch_path(
     filter_entries_by_expected_launch_path_with_options(app_label, entries, expected, true)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn filter_entries_by_expected_launch_path_with_options(
     app_label: &str,
     entries: Vec<(u32, Option<String>)>,
@@ -1353,12 +1356,6 @@ fn get_default_codex_windows_app_user_data_dirs(default_codex_home: &str) -> Has
         }
     }
     dirs
-}
-
-#[cfg(target_os = "windows")]
-fn is_codex_windows_main_process_command_line(cmdline: &str) -> bool {
-    let lower = cmdline.to_ascii_lowercase();
-    !lower.is_empty() && !is_helper_command_line(&lower) && !lower.contains("crashpad_handler")
 }
 
 #[cfg(target_os = "windows")]

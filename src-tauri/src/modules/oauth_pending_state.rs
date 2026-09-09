@@ -1,9 +1,12 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fs;
+#[cfg(not(target_os = "windows"))]
 use std::fs::OpenOptions;
+#[cfg(not(target_os = "windows"))]
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+#[cfg(not(target_os = "windows"))]
 use uuid::Uuid;
 
 const OAUTH_PENDING_DIR: &str = "oauth_pending";
@@ -23,12 +26,13 @@ fn pending_dir_path() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+#[cfg(target_os = "windows")]
 fn write_secure_atomic(path: &Path, content: &str) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        return crate::modules::atomic_write::write_string_atomic(path, content);
-    }
+    crate::modules::atomic_write::write_string_atomic(path, content)
+}
 
+#[cfg(not(target_os = "windows"))]
+fn write_secure_atomic(path: &Path, content: &str) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "OAuth pending 目录无效".to_string())?;

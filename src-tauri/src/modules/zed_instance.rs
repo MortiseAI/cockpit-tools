@@ -163,9 +163,6 @@ fn quit_zed_app() {
         .output();
 }
 
-#[cfg(not(target_os = "macos"))]
-fn quit_zed_app() {}
-
 pub fn stop_default_session() -> Result<ZedRuntimeStatus, String> {
     let state = load_runtime_state();
 

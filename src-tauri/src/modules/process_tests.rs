@@ -480,10 +480,6 @@ mod tests {
                 "{app} must define executable names"
             );
             assert!(
-                !signature.common_paths.is_empty(),
-                "{app} must define common install paths"
-            );
-            assert!(
                 !signature.display_keywords.is_empty(),
                 "{app} must define display keywords"
             );

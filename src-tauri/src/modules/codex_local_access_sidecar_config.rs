@@ -372,6 +372,8 @@ fn write_string_atomic_if_changed(path: &Path, content: &str) -> Result<bool, St
 }
 
 fn harden_sidecar_auth_file_permissions(path: &Path) -> Result<(), String> {
+    #[cfg(not(unix))]
+    let _ = path;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -785,6 +787,7 @@ fn effective_sidecar_account_ids(collection: &CodexLocalAccessCollection) -> Vec
 }
 
 /// 池内某一类额度窗口的汇总（按真实窗口时长归类，避免把周窗误标成 5h）。
+#[cfg(target_os = "macos")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ApiServicePoolWindowSum {
     /// 稳定 key：如 "5h" / "weekly" / "2d"
@@ -796,6 +799,7 @@ pub(crate) struct ApiServicePoolWindowSum {
 }
 
 /// 菜单栏 / 托盘菜单：API 服务账号池额度摘要。
+#[cfg(target_os = "macos")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ApiServiceMenuBarQuota {
     /// 各窗口合计中的较小值；用于菜单栏单数字展示与配色。
@@ -806,6 +810,7 @@ pub(crate) struct ApiServiceMenuBarQuota {
     pub account_count: usize,
 }
 
+#[cfg(target_os = "macos")]
 fn api_service_window_bucket(window_minutes: Option<i64>, fallback: &str) -> (String, String, i64) {
     const HOUR_MINUTES: i64 = 60;
     const DAY_MINUTES: i64 = 24 * HOUR_MINUTES;
@@ -841,6 +846,7 @@ fn api_service_window_bucket(window_minutes: Option<i64>, fallback: &str) -> (St
     (key, label, minutes)
 }
 
+#[cfg(target_os = "macos")]
 fn add_api_service_window_sum(
     windows: &mut Vec<ApiServicePoolWindowSum>,
     window_minutes: Option<i64>,
@@ -863,6 +869,7 @@ fn add_api_service_window_sum(
 }
 
 /// 读取本地 API 服务集合，按真实窗口时长汇总池内 OAuth 账号剩余百分比。
+#[cfg(target_os = "macos")]
 pub(crate) fn menu_bar_api_service_quota() -> ApiServiceMenuBarQuota {
     let Ok(Some(collection)) = load_collection_from_disk() else {
         return ApiServiceMenuBarQuota {
@@ -924,6 +931,7 @@ pub(crate) fn menu_bar_api_service_quota() -> ApiServiceMenuBarQuota {
 }
 
 /// 池内可刷新额度的 OAuth 账号 ID（用于托盘菜单刷新 API 服务额度）。
+#[cfg(target_os = "macos")]
 pub(crate) fn api_service_refreshable_account_ids() -> Vec<String> {
     let Ok(Some(collection)) = load_collection_from_disk() else {
         return Vec::new();
@@ -942,6 +950,7 @@ pub(crate) fn api_service_refreshable_account_ids() -> Vec<String> {
 }
 
 /// 是否存在 API 服务集合（有账号即可在托盘中展示 API 服务卡片）。
+#[cfg(target_os = "macos")]
 pub(crate) fn api_service_collection_has_accounts() -> bool {
     let Ok(Some(collection)) = load_collection_from_disk() else {
         return false;

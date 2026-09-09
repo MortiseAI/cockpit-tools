@@ -2390,7 +2390,6 @@ async fn spawn_provider_gateway_sidecar(
         .stderr(Stdio::piped());
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
 

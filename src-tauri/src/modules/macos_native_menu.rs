@@ -1,9 +1,3 @@
-#[cfg(not(target_os = "macos"))]
-use tauri::{AppHandle, Rect, Runtime};
-
-#[cfg(not(target_os = "macos"))]
-pub fn toggle_tray_menu<R: Runtime>(_app: &AppHandle<R>, _rect: Rect) {}
-
 #[cfg(target_os = "macos")]
 mod imp {
     include!("macos_native_menu_types.rs");

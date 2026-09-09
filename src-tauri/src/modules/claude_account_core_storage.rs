@@ -52,7 +52,9 @@ const CLAUDE_CODE_GLOBAL_CONFIG_FILE: &str = ".claude.json";
 const CLAUDE_CODE_SETTINGS_FILE: &str = "settings.json";
 const CLAUDE_CODE_SETTINGS_MANAGED_ENV_KEYS_FILE: &str =
     "claude_cli_settings_managed_env_keys.json";
+#[cfg(target_os = "macos")]
 const CLAUDE_CODE_KEYCHAIN_SERVICE_PREFIX: &str = "Claude Code";
+#[cfg(target_os = "macos")]
 const CLAUDE_CODE_KEYCHAIN_CREDENTIALS_SUFFIX: &str = "-credentials";
 const CLAUDE_CODE_API_ENV_KEYS: &[&str] = &[
     "ANTHROPIC_API_KEY",
@@ -82,10 +84,12 @@ const CLAUDE_DESKTOP_THREEP_DIR_NAME: &str = "Claude-3p";
 const CLAUDE_DESKTOP_AUTH_HELPER_SCRIPT: &str = "scripts/claude-desktop-auth-helper.cjs";
 const CLAUDE_DESKTOP_AUTH_STATUS_FILE: &str = "claude_desktop_auth_status.json";
 const CLAUDE_DESKTOP_AUTH_EXPORT_FILE: &str = "claude_desktop_auth_export.json";
+#[cfg(target_os = "macos")]
 const CLAUDE_DESKTOP_COOKIE_EXPORT_FILE: &str = "claude_desktop_cookie_probe_cookies.json";
 const CLAUDE_DESKTOP_LOGIN_PROGRESS_EVENT: &str = "claude:desktop-login-progress";
 const CLAUDE_DESKTOP_ELECTRON_RUNTIME_DIR: &str = "electron_runtime";
 const CLAUDE_DESKTOP_ELECTRON_VERSION: &str = "42.4.0";
+#[cfg(target_os = "macos")]
 const CLAUDE_DESKTOP_BUNDLE_ID_MACOS: &str = "com.anthropic.claudefordesktop";
 const CLAUDE_DESKTOP_LOGIN_TIMEOUT_SECONDS: i64 = 30 * 60;
 const CLAUDE_DESKTOP_AUTH_EXPORT_WAIT_SECONDS: u64 = 8;

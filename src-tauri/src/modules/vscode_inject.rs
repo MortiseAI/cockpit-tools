@@ -86,6 +86,7 @@ fn resolve_vscode_data_root(user_data_dir: Option<&str>) -> Result<PathBuf, Stri
     })
 }
 
+#[cfg(not(target_os = "windows"))]
 fn get_vscode_db_path_from_data_root(data_root: &Path) -> Result<PathBuf, String> {
     let path = crate::modules::vscode_paths::vscode_state_db_path(data_root);
     if path.exists() {

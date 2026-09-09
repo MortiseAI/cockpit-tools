@@ -17,27 +17,19 @@ struct AntigravityCredentialPayload {
 #[cfg(target_os = "windows")]
 #[derive(Debug, serde::Deserialize)]
 struct StoredAntigravityCredentialToken {
-    access_token: Option<String>,
     refresh_token: Option<String>,
-    token_type: Option<String>,
-    expiry: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
 #[derive(Debug, serde::Deserialize)]
 struct StoredAntigravityCredentialPayload {
     token: StoredAntigravityCredentialToken,
-    auth_method: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
 #[derive(Debug, Clone)]
 pub struct AntigravitySystemCredential {
-    pub access_token: Option<String>,
     pub refresh_token: String,
-    pub token_type: Option<String>,
-    pub expiry: Option<String>,
-    pub auth_method: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -67,13 +59,7 @@ fn parse_antigravity_system_credential(
     let refresh_token = normalize_non_empty(payload.token.refresh_token.as_deref())
         .ok_or_else(|| "Antigravity 系统凭据缺少 refresh_token".to_string())?;
 
-    Ok(AntigravitySystemCredential {
-        access_token: normalize_non_empty(payload.token.access_token.as_deref()),
-        refresh_token,
-        token_type: normalize_non_empty(payload.token.token_type.as_deref()),
-        expiry: normalize_non_empty(payload.token.expiry.as_deref()),
-        auth_method: normalize_non_empty(payload.auth_method.as_deref()),
-    })
+    Ok(AntigravitySystemCredential { refresh_token })
 }
 
 fn build_antigravity_credential_payload(account: &Account) -> Result<String, String> {

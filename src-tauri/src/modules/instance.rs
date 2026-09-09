@@ -169,11 +169,6 @@ fn ensure_state_db_for_injection(profile_dir: &Path) -> Result<PathBuf, String> 
     Ok(db_path)
 }
 
-pub fn inject_account_to_profile(profile_dir: &Path, account_id: &str) -> Result<(), String> {
-    let account = modules::load_account(account_id)?;
-    inject_account_to_profile_with_account(profile_dir, &account)
-}
-
 pub fn inject_account_to_profile_with_account(
     profile_dir: &Path,
     account: &Account,

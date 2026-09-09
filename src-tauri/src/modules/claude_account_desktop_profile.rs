@@ -943,6 +943,7 @@ where
     }
 }
 
+#[cfg(target_os = "macos")]
 fn write_desktop_cookie_probe_file(
     path: &Path,
     export: &ClaudeDesktopAuthCookieExport,

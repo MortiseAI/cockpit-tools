@@ -363,15 +363,7 @@ fn resolve_trae_pid_loose_for_platform(
     resolve_pid_from_entries_by_user_data_dir(last_pid, &target, allow_none_for_target, &entries)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn resolve_trae_pid_loose_for_platform(
-    _last_pid: Option<u32>,
-    _user_data_dir: Option<&str>,
-    _platform: crate::modules::trae_account::TraePlatformKind,
-) -> Option<u32> {
-    None
-}
-
+#[cfg(target_os = "macos")]
 fn clear_trae_singleton_locks(
     user_data_dir: Option<&str>,
     platform: crate::modules::trae_account::TraePlatformKind,
@@ -859,6 +851,7 @@ fn close_pids(pids: &[u32], timeout_secs: u64) -> Result<(), String> {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn is_legacy_platform_adapter_executable(executable: &str) -> bool {
     let executable = executable.trim();
     if executable.is_empty()
@@ -878,6 +871,7 @@ fn is_legacy_platform_adapter_executable(executable: &str) -> bool {
     file_name.starts_with("cockpit-") && file_name.ends_with("-adapter")
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn orphaned_legacy_platform_adapter_pid_from_ps_line(line: &str, current_pid: u32) -> Option<u32> {
     let mut parts = line.split_whitespace();
     let pid = parts.next()?.parse::<u32>().ok()?;

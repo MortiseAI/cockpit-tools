@@ -1,5 +1,6 @@
 use crate::models;
 use crate::modules;
+#[cfg(not(target_os = "windows"))]
 use crate::utils;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -389,6 +390,7 @@ async fn import_from_refresh_token(
     Ok(account)
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn import_from_local_state_db_logic() -> Result<models::Account, String> {
     use base64::{engine::general_purpose, Engine as _};
 
