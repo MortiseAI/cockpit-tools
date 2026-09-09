@@ -161,6 +161,8 @@ func main() {
 	defer cancel()
 	quotaState.start(ctx, emitter)
 	m.quotaCooldowns.start(ctx, emitter)
+	m.authRecovery = newAuthRecoveryCoordinator(ctx, emitter.emit)
+	go m.authRecovery.readReplies(os.Stdin)
 	monitorParentProcess(ctx, *parentPID, cancel, emitter)
 
 	coreusage.RegisterPlugin(&usagePlugin{manifest: m, tracker: usageTracker})

@@ -236,9 +236,6 @@ func (s *quotaCooldownSelector) Pick(ctx context.Context, provider, model string
 		}
 	}
 	if len(filtered) == 0 && len(auths) > 0 {
-		if nextCtx, recovered := maybeAutoRecoverAuthPool(ctx, s.manifest, model, auths); recovered {
-			return s.Pick(nextCtx, provider, model, opts, auths)
-		}
 		err := noAuthAvailableError(nil)
 		return nil, s.ReportAuthSelectionFailure(ctx, provider, model, auths, err)
 	}
@@ -256,90 +253,6 @@ func (s *quotaCooldownSelector) ReportAuthSelectionFailure(ctx context.Context, 
 		return reporter.ReportAuthSelectionFailure(ctx, provider, model, auths, err)
 	}
 	return err
-}
-
-type authPoolAutoRecoveredContextKey struct{}
-
-func withAuthPoolAutoRecovered(ctx context.Context) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, authPoolAutoRecoveredContextKey{}, true)
-}
-
-func authPoolAlreadyAutoRecovered(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	recovered, _ := ctx.Value(authPoolAutoRecoveredContextKey{}).(bool)
-	return recovered
-}
-
-func maybeAutoRecoverAuthPool(ctx context.Context, m *manifest, model string, auths []*coreauth.Auth) (context.Context, bool) {
-	if authPoolAlreadyAutoRecovered(ctx) || recoverRuntimeAuths(ctx, m, model, auths) == 0 {
-		return ctx, false
-	}
-	return withAuthPoolAutoRecovered(ctx), true
-}
-
-func recoverRuntimeAuths(ctx context.Context, m *manifest, model string, auths []*coreauth.Auth) int {
-	if m == nil || m.authManager == nil || len(auths) == 0 {
-		return 0
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	requestKind, _ := ctx.Value(requestKindContextKey).(string)
-	now := time.Now()
-	recoveredIDs := make([]string, 0, len(auths))
-	seen := make(map[string]struct{}, len(auths))
-	for _, auth := range auths {
-		if !shouldAutoRecoverAuth(m, auth, model, requestKind) {
-			continue
-		}
-		clearRuntimeAuthAvailability(auth)
-		if _, err := m.authManager.ResetAuthState(ctx, auth.ID); err != nil {
-			continue
-		}
-		account := accountForAuthInManifest(m, auth)
-		accountID := strings.TrimSpace(auth.ID)
-		if account != nil && strings.TrimSpace(account.ID) != "" {
-			accountID = strings.TrimSpace(account.ID)
-		}
-		if accountID == "" {
-			continue
-		}
-		if _, exists := seen[accountID]; exists {
-			continue
-		}
-		seen[accountID] = struct{}{}
-		recoveredIDs = append(recoveredIDs, accountID)
-	}
-	if len(recoveredIDs) == 0 {
-		return 0
-	}
-	clearQuotaCooldownForAccounts(m, recoveredIDs, now)
-	return len(recoveredIDs)
-}
-
-func shouldAutoRecoverAuth(m *manifest, auth *coreauth.Auth, model, requestKind string) bool {
-	if auth == nil || strings.TrimSpace(auth.ID) == "" {
-		return false
-	}
-	if auth.Disabled || auth.Status == coreauth.StatusDisabled {
-		return false
-	}
-	account := accountForAuthInManifest(m, auth)
-	if authModelExcluded(m, auth, model) {
-		return false
-	}
-	if isImageRequestKind(requestKind) && account != nil && !imageGenerationAllowedForAccount(account) {
-		return false
-	}
-	if quotaReserveBlockReasonWithState(account, nil, time.Now()) != "" {
-		return false
-	}
-	return true
 }
 
 func clearRuntimeAuthAvailability(auth *coreauth.Auth) {

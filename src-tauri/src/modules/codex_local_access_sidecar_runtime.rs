@@ -994,12 +994,30 @@ async fn drain_sidecar_stdout(
     stdout: tokio::process::ChildStdout,
     ready_sender: oneshot::Sender<SidecarReadySignal>,
     diagnostics: SharedSidecarStartupDiagnostics,
+    stdin: Option<tokio::process::ChildStdin>,
+    allowed_accounts: HashSet<String>,
 ) {
+    let stdin = stdin.map(|stdin| Arc::new(TokioMutex::new(stdin)));
+    let allowed_accounts = Arc::new(allowed_accounts);
     let mut lines = BufReader::new(stdout).lines();
     let mut ready_sender = Some(ready_sender);
     loop {
         match lines.next_line().await {
             Ok(Some(line)) => {
+                if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                    if value.get("type").and_then(Value::as_str) == Some("auth_recovery_required") {
+                        if let (Some(stdin), Ok(request)) =
+                            (stdin.as_ref(), serde_json::from_value(value))
+                        {
+                            tokio::spawn(handle_sidecar_auth_recovery(
+                                request,
+                                Arc::clone(&allowed_accounts),
+                                Arc::clone(stdin),
+                            ));
+                        }
+                        continue;
+                    }
+                }
                 handle_sidecar_stdout_line(&line, &mut ready_sender, &diagnostics).await
             }
             Ok(None) => break,

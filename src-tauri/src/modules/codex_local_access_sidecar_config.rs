@@ -1145,6 +1145,7 @@ fn sidecar_auth_json_for_account_with_metered_feature_patterns(
         // 否则它会与官方 ChatGPT/Codex app-server 竞争一次性 refresh_token。
         "refresh_token": "",
         "refresh_owner": "cockpit_token_authority",
+        "cockpit_token_generation": account.token_generation,
         "last_refresh": sidecar_account_last_refresh(account),
         "email": account.email.clone(),
         "plan_type": account.plan_type.clone(),

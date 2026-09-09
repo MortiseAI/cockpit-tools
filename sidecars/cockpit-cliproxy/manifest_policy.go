@@ -111,6 +111,7 @@ type manifest struct {
 	originalIndexByID map[string]int
 	quotaCooldowns    *quotaCooldownStateStore
 	authManager       *coreauth.Manager
+	authRecovery      *authRecoveryCoordinator
 }
 
 type apiKeySpec struct {

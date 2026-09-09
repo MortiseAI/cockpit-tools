@@ -140,6 +140,7 @@ type Manager struct {
 	auths                     map[string]*Auth
 	authEpochs                map[string]uint64
 	authRecoveryBarriers      map[string]time.Time
+	hostAuthRecoveryBarriers  map[string]time.Time
 	scheduler                 *authScheduler
 	// pluginScheduler runs outside m.mu before falling back to native selection.
 	pluginScheduler PluginScheduler

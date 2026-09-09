@@ -1492,6 +1492,7 @@ func (m *Manager) routeAwareSelectionRequired(auth *Auth, routeModel string) boo
 }
 
 func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
+	ctx = withSelectionRecovery(ctx)
 	if m.HomeEnabled() {
 		auth, exec, _, err := m.pickNextViaHome(ctx, model, opts, tried)
 		return auth, exec, err
@@ -1548,7 +1549,11 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	}
 	available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, provider, model, time.Now())
 	if errAvailable != nil {
+		candidates = cloneAuthSlice(candidates)
 		m.mu.RUnlock()
+		if tryRecoverAuthSelection(ctx, selector, provider, model, opts, candidates, tried, errAvailable) {
+			return m.pickNextLegacy(ctx, provider, model, opts, tried)
+		}
 		errAvailable = reportAuthSelectionFailure(ctx, selector, provider, model, candidates, errAvailable)
 		m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, tried, errAvailable)
 		return nil, nil, errAvailable
@@ -1564,6 +1569,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		selectorCtx := withWeightedSelectorStateModel(ctx, selector, model)
 		selected, errPick = selector.Pick(selectorCtx, provider, selectionArgForSelector(selector, model), opts, selectorAuths)
 		if errPick != nil {
+			if tryRecoverAuthSelection(ctx, selector, provider, model, opts, selectorAuths, tried, errPick) {
+				return m.pickNextLegacy(ctx, provider, model, opts, tried)
+			}
 			if isBuiltInSelector(selector) {
 				errPick = restoreModelCooldownErrorModel(errPick, model)
 			}
@@ -1583,6 +1591,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		}
 		m.mu.Unlock()
 	}
+	markSelectionRecoveryDispatched(ctx)
 	return authCopy, executor, nil
 }
 
@@ -1812,6 +1821,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 }
 
 func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, string, error) {
+	ctx = withSelectionRecovery(ctx)
 	if m.HomeEnabled() {
 		return m.pickNextViaHome(ctx, model, opts, tried)
 	}
@@ -1884,7 +1894,11 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 	}
 	available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, "mixed", model, time.Now())
 	if errAvailable != nil {
+		candidates = cloneAuthSlice(candidates)
 		m.mu.RUnlock()
+		if tryRecoverAuthSelection(ctx, selector, "mixed", model, opts, candidates, tried, errAvailable) {
+			return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
+		}
 		errAvailable = reportAuthSelectionFailure(ctx, selector, "mixed", model, candidates, errAvailable)
 		m.warnLogAuthUnavailable(ctx, providers, model, opts, tried, errAvailable)
 		return nil, nil, "", errAvailable
@@ -1900,6 +1914,9 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		selectorCtx := withWeightedSelectorStateModel(ctx, selector, model)
 		selected, errPick = selector.Pick(selectorCtx, "mixed", selectionArgForSelector(selector, model), opts, selectorAuths)
 		if errPick != nil {
+			if tryRecoverAuthSelection(ctx, selector, "mixed", model, opts, selectorAuths, tried, errPick) {
+				return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
+			}
 			if isBuiltInSelector(selector) {
 				errPick = restoreModelCooldownErrorModel(errPick, model)
 			}
@@ -1924,6 +1941,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		}
 		m.mu.Unlock()
 	}
+	markSelectionRecoveryDispatched(ctx)
 	return authCopy, executor, providerKey, nil
 }
 

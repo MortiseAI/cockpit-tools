@@ -460,9 +460,6 @@ func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts
 	}
 	selectionStats.availableAuths = len(available)
 	if len(available) == 0 {
-		if nextCtx, recovered := maybeAutoRecoverAuthPool(ctx, s.manifest, model, auths); recovered {
-			return s.Pick(nextCtx, provider, model, opts, auths)
-		}
 		err := authPoolUnavailableError(s.locale, selectionStats, noAuthAvailableError(quotaReserveReasons).Error())
 		s.emitAuthPoolUnavailable(ctx, provider, model, selectionStats, err)
 		return nil, err
@@ -1656,7 +1653,14 @@ func buildCoreAuthManager(cfg *config.Config, selector coreauth.Selector, hook c
 	if tracker != nil {
 		selector = &recordingSelector{inner: selector, manifest: m, tracker: tracker}
 	}
-	return coreauth.NewManager(tokenStore, selector, hook)
+	if m != nil {
+		selector = &authRecoverySelector{fallback: selector, manifest: m, quota: quota}
+	}
+	manager := coreauth.NewManager(tokenStore, selector, hook)
+	if m != nil {
+		m.authManager = manager
+	}
+	return manager
 }
 
 type cockpitSessionAffinitySelector struct {

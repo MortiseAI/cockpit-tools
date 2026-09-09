@@ -156,7 +156,7 @@ async fn ensure_gateway_matches_runtime_once_locked() -> Result<(), String> {
                 .parent()
                 .unwrap_or_else(|| Path::new(".")),
         )
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(target_os = "windows")]
@@ -178,6 +178,8 @@ async fn ensure_gateway_matches_runtime_once_locked() -> Result<(), String> {
         }
     };
 
+    let stdin = child.stdin.take();
+    let recovery_accounts = sidecar_auth_account_ids(&collection).into_iter().collect();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let (ready_sender, mut ready_receiver) = oneshot::channel();
@@ -191,6 +193,8 @@ async fn ensure_gateway_matches_runtime_once_locked() -> Result<(), String> {
                 stdout,
                 ready_sender,
                 stdout_diagnostics,
+                stdin,
+                recovery_accounts,
             ))
         });
         let stderr_task =

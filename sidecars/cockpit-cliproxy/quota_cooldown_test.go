@@ -9,7 +9,7 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
 
-func TestQuotaCooldownSelectorAutoRecoversExhaustedAccounts(t *testing.T) {
+func TestQuotaCooldownSelectorPreservesConfirmedExhaustion(t *testing.T) {
 	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
 	if _, err := manager.Register(context.Background(), &coreauth.Auth{
 		ID:       "auth-quota.json",
@@ -41,11 +41,11 @@ func TestQuotaCooldownSelectorAutoRecoversExhaustedAccounts(t *testing.T) {
 	auth := &coreauth.Auth{ID: "auth-quota.json", Provider: "codex", Status: coreauth.StatusActive}
 
 	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.5", cliproxyexecutor.Options{}, []*coreauth.Auth{auth})
-	if err != nil || selected == nil || selected.ID != "auth-quota.json" {
-		t.Fatalf("expected auto-recovered quota account to be selectable, got auth=%#v err=%v", selected, err)
+	if err == nil || selected != nil {
+		t.Fatalf("exhausted account must stay unavailable, got auth=%#v err=%v", selected, err)
 	}
-	if accountQuotaExhausted(m, account, time.Now()) {
-		t.Fatal("quota cooldown snapshot should be cleared after auto-recovery")
+	if !accountQuotaExhausted(m, account, time.Now()) {
+		t.Fatal("automatic selection must preserve confirmed quota exhaustion")
 	}
 }
 

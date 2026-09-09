@@ -452,6 +452,11 @@ func dedupeStrings(values []string) []string {
 
 // ResetQuota clears quota/cooldown state for an auth and resumes registry routing.
 func (m *Manager) ResetQuota(ctx context.Context, authID string) (*Auth, []string, error) {
+	return m.resetQuota(ctx, authID, nil)
+}
+
+// approve runs under the manager lock, before changing credentials or cooldowns.
+func (m *Manager) resetQuota(ctx context.Context, authID string, approve func(*Auth) bool) (*Auth, []string, error) {
 	if m == nil {
 		return nil, nil, nil
 	}
@@ -469,6 +474,10 @@ func (m *Manager) ResetQuota(ctx context.Context, authID string) (*Auth, []strin
 	m.mu.Lock()
 	auth, ok := m.auths[authID]
 	if !ok || auth == nil {
+		m.mu.Unlock()
+		return nil, nil, nil
+	}
+	if approve != nil && !approve(auth) {
 		m.mu.Unlock()
 		return nil, nil, nil
 	}
@@ -749,6 +758,12 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 
 	m.mu.Lock()
 	if auth, ok := m.auths[result.AuthID]; ok && auth != nil {
+		// A late 401 from the previous bearer must not poison the refreshed
+		// credential. Quota/rate-limit results remain authoritative.
+		if barrier := m.hostAuthRecoveryBarriers[result.AuthID]; result.Error != nil && result.Error.HTTPStatus == 401 && !barrier.IsZero() && !result.AttemptStartedAt.IsZero() && result.AttemptStartedAt.Before(barrier) {
+			m.mu.Unlock()
+			return
+		}
 		if barrier := m.authRecoveryBarriers[result.AuthID]; !barrier.IsZero() && !result.AttemptStartedAt.IsZero() && result.AttemptStartedAt.Before(barrier) {
 			m.mu.Unlock()
 			return
