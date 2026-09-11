@@ -15,7 +15,7 @@ initErrorReporter();
 recordFrontendStage("script_loaded");
 setBootSplashStage("script_loaded");
 
-void Promise.all([initI18n(), hydrateUiPreferences()]).then(async () => {
+void initI18n().then(async () => {
   const { default: App } = await import("./App");
 
   const rootElement = document.getElementById("root");
@@ -38,6 +38,8 @@ void Promise.all([initI18n(), hydrateUiPreferences()]).then(async () => {
     setBootSplashStage("react_mounted");
     markFrontendReady("react_mounted");
   });
+  // Durable preferences hydrate in the background; never block the first render.
+  void hydrateUiPreferences();
 }).catch((error: unknown) => {
   captureError(error, { source: "frontend_boot", phase: "startup" });
   showBootSplashError(error instanceof Error ? error.message : String(error));

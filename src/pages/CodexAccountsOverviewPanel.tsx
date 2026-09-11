@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Plus, RefreshCw, Download, Upload, Trash2, X, Globe, KeyRound, Power, Copy, Check, Play, Pause, RotateCw, CircleAlert, Info, Rows3, LayoutGrid, List, Search, ArrowDownWideNarrow, ArrowUp, ArrowDown, GripVertical, Clock, Tag, Star, Eye, EyeOff, BookOpen, FileText, ExternalLink, Pencil, FolderOpen, FolderPlus, ChevronRight, LogOut, Terminal, ChevronDown } from "lucide-react";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
@@ -26,6 +26,8 @@ import type { CodexExportFormat } from "../utils/codexExportFormats";
 import type { CodexAccountsViewProps } from "./CodexAccountsView";
 import { CodexAddAccountDialog } from "./CodexAddAccountDialog";
 import { parseCodexSwitchAuthFailure } from "../utils/codexSwitchAuthFailure";
+import { useCodexPelicanStore } from "../stores/useCodexPelicanStore";
+import { PELICAN_GROUPS_CHANGED } from "../components/codex/pelican/PelicanResults";
 
 
 /** 渲染 CodexAccountsView 的 activeTab === "overview" 业务面板。 */
@@ -385,6 +387,11 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
     validateOAuthBindingQuotaReserveField,
     viewMode,
   } = props;
+  useEffect(() => {
+    const reload = () => { void reloadCodexGroups(); };
+    window.addEventListener(PELICAN_GROUPS_CHANGED, reload);
+    return () => window.removeEventListener(PELICAN_GROUPS_CHANGED, reload);
+  }, [reloadCodexGroups]);
   return (
         <>
           {message && (
@@ -810,6 +817,9 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                     authFailedExportAccountIds.length > 0 ||
                     hasDetectableFullQuotaWakeupAccounts) && (
                     <div className="codex-overview-selection-actions">
+                      <button type="button" className="btn btn-secondary" onClick={() => useCodexPelicanStore.getState().open([...selected])}>
+                        <Play size={14} /><span>{t('pelican.title')}</span>
+                      </button>
                       <button
                         type="button"
                         className="btn btn-secondary codex-overview-full-quota-wakeup-btn"
@@ -1998,7 +2008,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
           {editingApiKeyCredentialsId && (
             <div className="modal-overlay">
               <div
-                className="modal-content codex-add-modal codex-api-key-edit-modal"
+                className="modal-content codex-add-modal codex-api-key-edit-modal codex-provider-modal"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="modal-header">
@@ -2287,6 +2297,36 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                         />
                       </div>
                     </div>
+                    <div className="oauth-link">
+                      <label>{t("codex.modelProviders.fields.wireApi", "协议")}</label>
+                      <div className="api-provider-chip-list">
+                        <span className={`api-provider-chip ${selectedEditingManagedProvider?.wireApi !== "chat_completions" ? "active" : ""}`}>
+                          {t("codex.modelProviders.wireApi.responses", "Responses 原生")}
+                        </span>
+                        <span className={`api-provider-chip ${selectedEditingManagedProvider?.wireApi === "chat_completions" ? "active" : ""}`}>
+                          {t("codex.modelProviders.wireApi.chatCompletions", "Chat Completions 协议")}
+                        </span>
+                      </div>
+                    </div>
+                    {selectedEditingManagedProvider?.wireApi !== "chat_completions" && (
+                      <div className="oauth-link">
+                        <label>{t("codex.modelProviders.fields.supportsWebsockets", "WebSocket 传输")}</label>
+                        <label className="provider-vision-toggle">
+                          <span className="provider-vision-toggle-copy">
+                            <span className="provider-vision-toggle-title">
+                              {t("codex.modelProviders.websockets.title", "允许 Codex 使用 Responses WebSocket")}
+                            </span>
+                            <span className="provider-vision-toggle-desc">
+                              {t("codex.modelProviders.websockets.help", "仅在供应商明确支持 Responses WebSocket 时开启；连接方式可通过 Codex 或代理服务日志确认。")}
+                            </span>
+                          </span>
+                          <span className="provider-vision-switch">
+                            <input type="checkbox" checked={selectedEditingManagedProvider?.supportsWebsockets === true} readOnly />
+                            <span className="provider-vision-switch-track" />
+                          </span>
+                        </label>
+                      </div>
+                    )}
                     {editingApiProviderPresetId !== COCKPIT_API_PROVIDER_ID && (
                       <div className="oauth-link">
                         <label>
@@ -4160,6 +4200,11 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
             onUpdateDebugLogs={(debugLogs) =>
               codexLocalAccessService
                 .updateCodexLocalAccessDebugLogs(debugLogs)
+                .then(setLocalAccessState)
+            }
+            onUpdateImageGenerationModel={(model) =>
+              codexLocalAccessService
+                .updateCodexLocalAccessImageGenerationModel(model)
                 .then(setLocalAccessState)
             }
             onUpdateUpstreamProxyConfig={

@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	codexlive "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/live"
 
 	sdkhandlers "github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
@@ -114,6 +116,11 @@ func main() {
 	if err != nil {
 		emitter.emit(map[string]any{"type": "error", "message": err.Error()})
 		os.Exit(2)
+	}
+	// Match the host's diagnostics setting before either runtime creates a router.
+	gin.SetMode(gin.ReleaseMode)
+	if cfg.Debug {
+		gin.SetMode(gin.DebugMode)
 	}
 	emitter.emitStartupStage("load_manifest")
 	m, err := loadManifest(*manifestPath)

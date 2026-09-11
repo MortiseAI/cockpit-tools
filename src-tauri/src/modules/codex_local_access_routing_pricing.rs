@@ -12,6 +12,7 @@ fn build_cooldown_key(account_id: &str, model_key: &str) -> Option<String> {
     ))
 }
 
+#[cfg(test)]
 fn build_ordered_account_ids(
     account_ids: &[String],
     start: usize,
@@ -150,6 +151,7 @@ fn resolve_subscription_expiry_ms(account: &CodexAccount) -> Option<i64> {
         .map(|parsed| parsed.timestamp_millis())
 }
 
+#[cfg(test)]
 fn build_routing_candidates(ordered_account_ids: &[String]) -> Vec<RoutingCandidate> {
     ordered_account_ids
         .iter()
@@ -166,6 +168,7 @@ fn build_routing_candidates(ordered_account_ids: &[String]) -> Vec<RoutingCandid
         .collect()
 }
 
+#[cfg(test)]
 fn compare_routing_candidates(
     left: &RoutingCandidate,
     right: &RoutingCandidate,
@@ -346,6 +349,7 @@ fn account_excluded_models<'a>(
         .map(|rule| rule.excluded_models.as_slice())
 }
 
+#[cfg(test)]
 fn account_model_rule_blocks_model(
     collection: &CodexLocalAccessCollection,
     account_id: &str,
@@ -597,12 +601,14 @@ fn sidecar_excluded_models_for_account(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg(test)]
 enum AccountUsagePriority {
     Lowest,
     Normal,
     Highest,
 }
 
+#[cfg(test)]
 fn account_usage_priority(
     rule: Option<&CodexLocalAccessCustomRoutingRule>,
 ) -> AccountUsagePriority {
@@ -613,6 +619,7 @@ fn account_usage_priority(
     }
 }
 
+#[cfg(test)]
 fn custom_rule_map(
     rules: &[CodexLocalAccessCustomRoutingRule],
 ) -> HashMap<&str, (i32, u32, AccountUsagePriority)> {
@@ -633,6 +640,7 @@ fn custom_rule_map(
         .collect()
 }
 
+#[cfg(test)]
 fn weighted_group_order(
     group: &[String],
     weights: &HashMap<&str, (i32, u32, AccountUsagePriority)>,
@@ -672,6 +680,7 @@ fn weighted_group_order(
         .collect()
 }
 
+#[cfg(test)]
 fn apply_custom_routing_strategy(
     account_ids: &[String],
     rules: &[CodexLocalAccessCustomRoutingRule],
@@ -707,6 +716,7 @@ fn apply_custom_routing_strategy(
     ordered
 }
 
+#[cfg(test)]
 fn apply_account_usage_priority(
     account_ids: Vec<String>,
     rules: &[CodexLocalAccessCustomRoutingRule],
@@ -730,6 +740,7 @@ fn apply_account_usage_priority(
     highest
 }
 
+#[cfg(test)]
 fn apply_routing_strategy(
     account_ids: &[String],
     strategy: CodexLocalAccessRoutingStrategy,
@@ -765,6 +776,7 @@ fn apply_routing_strategy(
     apply_account_usage_priority(ordered, custom_rules)
 }
 
+#[cfg(test)]
 fn effective_routing_strategy(
     collection: &CodexLocalAccessCollection,
     scoped_account_ids: &[String],
@@ -776,6 +788,7 @@ fn effective_routing_strategy(
     }
 }
 
+#[cfg(test)]
 fn max_credential_attempts_for_strategy(
     collection: &CodexLocalAccessCollection,
     total: usize,
@@ -795,6 +808,7 @@ fn max_credential_attempts_for_strategy(
     .max(1)
 }
 
+#[cfg(test)]
 fn prioritize_account_ids(
     account_ids: Vec<String>,
     priority_account_ids: &[String],
@@ -822,6 +836,7 @@ fn prioritize_account_ids(
     ordered
 }
 
+#[cfg(test)]
 fn pin_account_to_front_for_strategy(
     account_ids: Vec<String>,
     priority_account_ids: &[String],
@@ -851,11 +866,13 @@ fn pin_account_to_front_for_strategy(
     highest
 }
 
+#[cfg(test)]
 fn format_retry_after_duration(wait: Duration) -> String {
     let seconds = wait.as_secs().max(1);
     format!("{} 秒", seconds)
 }
 
+#[cfg(test)]
 fn build_cooldown_unavailable_message(model_key: &str, wait: Duration) -> String {
     let wait_text = format_retry_after_duration(wait);
     if model_key.trim().is_empty() {
@@ -868,6 +885,7 @@ fn build_cooldown_unavailable_message(model_key: &str, wait: Duration) -> String
     }
 }
 
+#[cfg(test)]
 fn parse_codex_retry_after(status: StatusCode, error_body: &str) -> Option<Duration> {
     if status != StatusCode::TOO_MANY_REQUESTS || error_body.trim().is_empty() {
         return None;

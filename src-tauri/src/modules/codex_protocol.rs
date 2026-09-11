@@ -2,6 +2,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+#[cfg(test)]
 const REASONING_ENCRYPTED_CONTENT_INCLUDE: &str = "reasoning.encrypted_content";
 const CODEX_AUTO_REVIEW_MODEL_ID: &str = "codex-auto-review";
 const CODEX_RESERVE_MODEL_ID: &str = "gpt-reserve";
@@ -39,6 +40,7 @@ pub fn merge_local_no_proxy(raw: &str) -> String {
     items.join(",")
 }
 
+#[cfg(test)]
 pub fn is_codex_client_models_request(target: &str) -> bool {
     let Some(query) = target.split_once('?').map(|(_, query)| query) else {
         return false;
@@ -249,6 +251,7 @@ pub fn normalize_responses_body_for_codex(body: &mut Value) -> bool {
     normalize_responses_body_for_codex_with_lite(body, false)
 }
 
+#[cfg(test)]
 pub fn normalize_responses_body_for_codex_with_lite(
     body: &mut Value,
     force_responses_lite: bool,
@@ -302,11 +305,13 @@ pub(crate) fn codex_model_uses_responses_lite(model_id: &str) -> bool {
         })
 }
 
+#[cfg(test)]
 pub(crate) fn filter_responses_lite_tools(body: &mut Value) -> bool {
     body.as_object_mut()
         .is_some_and(filter_responses_lite_tools_in_object)
 }
 
+#[cfg(test)]
 fn responses_lite_tool_allowed(tool: &Value) -> bool {
     match tool
         .get("type")
@@ -323,6 +328,7 @@ fn responses_lite_tool_allowed(tool: &Value) -> bool {
     }
 }
 
+#[cfg(test)]
 fn filter_responses_lite_tool_array(value: &mut Value) -> (bool, bool) {
     let Some(tools) = value.as_array_mut() else {
         return (false, false);
@@ -332,6 +338,7 @@ fn filter_responses_lite_tool_array(value: &mut Value) -> (bool, bool) {
     (tools.len() != before, !tools.is_empty())
 }
 
+#[cfg(test)]
 fn filter_responses_lite_tool_choice(choice: &mut Value) -> (bool, bool) {
     if let Some(choice_name) = choice.as_str() {
         let valid = matches!(
@@ -377,6 +384,7 @@ fn filter_responses_lite_tool_choice(choice: &mut Value) -> (bool, bool) {
     (changed, has_allowed_tools)
 }
 
+#[cfg(test)]
 fn filter_responses_lite_tools_in_object(object: &mut Map<String, Value>) -> bool {
     let mut changed = false;
 
@@ -431,6 +439,7 @@ fn build_codex_client_model(model_id: &str, index: usize) -> Value {
         model_id,
         CODEX_AUTO_REVIEW_MODEL_ID
             | "gpt-image-2"
+            | "gpt-image-2.5"
             | "grok-imagine-image"
             | "grok-imagine-video"
             | "grok-imagine-image-quality"
@@ -587,11 +596,13 @@ fn display_name_for_model(model_id: &str) -> String {
         "gpt-5.1-codex-max" => "GPT-5.1 Codex Max".to_string(),
         "gpt-5.1-codex-mini" => "GPT-5.1 Codex Mini".to_string(),
         "gpt-image-2" => "GPT Image 2".to_string(),
+        "gpt-image-2.5" => "GPT Image 2.5".to_string(),
         CODEX_AUTO_REVIEW_MODEL_ID => "Codex Auto Review".to_string(),
         other => other.to_string(),
     }
 }
 
+#[cfg(test)]
 fn ensure_string_field(obj: &mut Map<String, Value>, key: &str, value: &str) -> bool {
     if obj.get(key).and_then(Value::as_str) == Some(value) {
         return false;
@@ -603,6 +614,7 @@ fn ensure_string_field(obj: &mut Map<String, Value>, key: &str, value: &str) -> 
     true
 }
 
+#[cfg(test)]
 fn ensure_bool_field(obj: &mut Map<String, Value>, key: &str, value: bool) -> bool {
     if obj.get(key).and_then(Value::as_bool) == Some(value) {
         return false;
@@ -611,6 +623,7 @@ fn ensure_bool_field(obj: &mut Map<String, Value>, key: &str, value: bool) -> bo
     true
 }
 
+#[cfg(test)]
 fn ensure_reasoning_include(obj: &mut Map<String, Value>) -> bool {
     match obj.get_mut("include") {
         Some(Value::Array(items)) => {
@@ -638,6 +651,7 @@ fn ensure_reasoning_include(obj: &mut Map<String, Value>) -> bool {
     }
 }
 
+#[cfg(test)]
 fn normalize_responses_input(obj: &mut Map<String, Value>) -> bool {
     let Some(input) = obj.get_mut("input") else {
         return false;
@@ -666,22 +680,15 @@ fn normalize_responses_input(obj: &mut Map<String, Value>) -> bool {
     }
 }
 
+#[cfg(test)]
 fn normalize_responses_input_item(item: &mut Value) -> bool {
     let Some(obj) = item.as_object_mut() else {
         return false;
     };
 
-    // Keep call namespaces for the sidecar's provider-specific compatibility
-    // handling, while dropping unsupported namespaces from other replayed items.
-    let preserves_namespace = matches!(
-        obj.get("type").and_then(Value::as_str),
-        Some("function_call" | "custom_tool_call" | "tool_call" | "mcp_tool_call")
-    );
-    let mut changed = if preserves_namespace {
-        false
-    } else {
-        obj.remove("namespace").is_some()
-    };
+    // Leave namespace semantics to the upstream-compatible protocol layer.
+    // The host must not discard replay metadata before provider selection.
+    let mut changed = false;
     let role = obj
         .get("role")
         .and_then(Value::as_str)
@@ -710,6 +717,7 @@ fn normalize_responses_input_item(item: &mut Value) -> bool {
     changed
 }
 
+#[cfg(test)]
 fn normalize_message_content(content: &mut Value, role: &str) -> bool {
     match content {
         Value::String(text) => {
@@ -728,6 +736,7 @@ fn normalize_message_content(content: &mut Value, role: &str) -> bool {
     }
 }
 
+#[cfg(test)]
 fn normalize_content_part(part: &mut Value, role: &str) -> bool {
     let Some(obj) = part.as_object_mut() else {
         return false;
@@ -767,6 +776,7 @@ fn normalize_content_part(part: &mut Value, role: &str) -> bool {
     changed
 }
 
+#[cfg(test)]
 fn message_item(role: &str, text: &str) -> Value {
     json!({
         "type": "message",
@@ -775,6 +785,7 @@ fn message_item(role: &str, text: &str) -> Value {
     })
 }
 
+#[cfg(test)]
 fn text_part(role: &str, text: &str) -> Value {
     json!({
         "type": response_text_type_for_role(role),
@@ -782,6 +793,7 @@ fn text_part(role: &str, text: &str) -> Value {
     })
 }
 
+#[cfg(test)]
 fn response_text_type_for_role(role: &str) -> &'static str {
     if role.eq_ignore_ascii_case("assistant") {
         "output_text"
@@ -790,6 +802,7 @@ fn response_text_type_for_role(role: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn normalize_codex_builtin_tools(obj: &mut Map<String, Value>) -> bool {
     let mut changed = false;
 
@@ -811,6 +824,7 @@ fn normalize_codex_builtin_tools(obj: &mut Map<String, Value>) -> bool {
     changed
 }
 
+#[cfg(test)]
 fn normalize_builtin_tool_value(value: &mut Value) -> bool {
     let Some(obj) = value.as_object_mut() else {
         return false;
@@ -827,6 +841,7 @@ fn normalize_builtin_tool_value(value: &mut Value) -> bool {
     true
 }
 
+#[cfg(test)]
 fn remove_unsupported_responses_fields(obj: &mut Map<String, Value>) -> bool {
     let mut changed = false;
     for key in [
@@ -1245,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_namespace_from_non_call_replayed_input_items() {
+    fn preserves_namespace_from_non_call_replayed_input_items() {
         let mut body = json!({
             "model": "gpt-5.4",
             "input": [
@@ -1259,7 +1274,10 @@ mod tests {
         });
 
         assert!(normalize_responses_body_for_codex(&mut body));
-        assert!(body.pointer("/input/0/namespace").is_none());
+        assert_eq!(
+            body.pointer("/input/0/namespace").and_then(Value::as_str),
+            Some("mcp__example")
+        );
     }
 
     #[test]

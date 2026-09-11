@@ -97,7 +97,6 @@ export type CopyField =
   | `apiKey:${string}`;
 export type RequestLogKindFilter = "all" | CodexLocalAccessRequestKind;
 export type RequestLogStatusFilter = "all" | "success" | "failed";
-export type RequestLogGatewayModeFilter = "all" | "legacy" | "sidecar";
 type BuiltinTimeoutPresetId = "long_wait" | "short_wait";
 type TimeoutPresetId = BuiltinTimeoutPresetId | string;
 
@@ -654,19 +653,6 @@ function requestKindLabel(
   return t("codex.localAccess.requestKind.other", "其他");
 }
 
-function gatewayModeLabel(
-  mode: RequestLogGatewayModeFilter | null | undefined,
-  t: ReturnType<typeof useTranslation>["t"],
-): string {
-  if (mode === "legacy") {
-    return t("codex.localAccess.gatewayModeOldLabel", "API 服务-旧");
-  }
-  if (mode === "sidecar") {
-    return t("codex.localAccess.gatewayModeNewLabel", "API 服务-新");
-  }
-  return t("codex.apiService.logs.gatewayModeUnknown", "模式未知");
-}
-
 /** 与后端写入 x-cockpit-instance-id 一致：profile 目录 basename */
 function clientInstanceIdFromUserDataDir(userDataDir: string): string {
   const normalized = userDataDir.trim().replace(/[/\\]+$/, "");
@@ -812,8 +798,6 @@ export function useCodexApiServicePageController() {
     useState<RequestLogKindFilter>("all");
   const [requestLogStatusFilter, setRequestLogStatusFilter] =
     useState<RequestLogStatusFilter>("all");
-  const [requestLogGatewayModeFilter, setRequestLogGatewayModeFilter] =
-    useState<RequestLogGatewayModeFilter>("all");
   const [requestLogModelQuery, setRequestLogModelQuery] = useState("");
   const [requestLogAccountQuery, setRequestLogAccountQuery] = useState("");
   const [requestLogApiKeyQuery, setRequestLogApiKeyQuery] = useState("");
@@ -1426,7 +1410,6 @@ export function useCodexApiServicePageController() {
     requestLogPageSize,
     requestLogKindFilter,
     requestLogStatusFilter,
-    requestLogGatewayModeFilter,
     requestLogModelQuery,
     requestLogAccountQuery,
     requestLogApiKeyQuery,
@@ -1460,10 +1443,6 @@ export function useCodexApiServicePageController() {
         apiKeyQuery: requestLogApiKeyQuery,
         instanceQuery:
           requestLogInstanceQuery === "all" ? null : requestLogInstanceQuery,
-        gatewayMode:
-          requestLogGatewayModeFilter === "all"
-            ? null
-            : requestLogGatewayModeFilter,
         requestKind:
           requestLogKindFilter === "all" ? null : requestLogKindFilter,
         success,
@@ -1499,7 +1478,6 @@ export function useCodexApiServicePageController() {
     requestLogPageSize,
     requestLogKindFilter,
     requestLogStatusFilter,
-    requestLogGatewayModeFilter,
     requestLogModelQuery,
     requestLogAccountQuery,
     requestLogApiKeyQuery,
@@ -3441,23 +3419,6 @@ export function useCodexApiServicePageController() {
     }
     return options;
   }, [codexInstances, t]);
-  const requestLogGatewayModeOptions: Array<{
-    value: RequestLogGatewayModeFilter;
-    label: string;
-  }> = [
-    {
-      value: "all",
-      label: t("codex.apiService.logs.allGatewayModes", "All Modes"),
-    },
-    {
-      value: "sidecar",
-      label: t("codex.localAccess.gatewayModeNewLabel", "API Service-New"),
-    },
-    {
-      value: "legacy",
-      label: t("codex.localAccess.gatewayModeOldLabel", "API Service-Old"),
-    },
-  ];
   const serviceTabs: Array<{
     key: ServiceTab;
     label: string;
@@ -3569,7 +3530,6 @@ export function useCodexApiServicePageController() {
   const hasRequestLogFilters = Boolean(
     requestLogKindFilter !== "all" ||
     requestLogStatusFilter !== "all" ||
-    requestLogGatewayModeFilter !== "all" ||
     requestLogInstanceQuery !== "all" ||
     requestLogModelQuery.trim() ||
     requestLogAccountQuery.trim() ||
@@ -3579,7 +3539,6 @@ export function useCodexApiServicePageController() {
   const clearRequestLogFilters = () => {
     setRequestLogKindFilter("all");
     setRequestLogStatusFilter("all");
-    setRequestLogGatewayModeFilter("all");
     setRequestLogModelQuery("");
     setRequestLogAccountQuery("");
     setRequestLogApiKeyQuery("");
@@ -3641,7 +3600,6 @@ export function useCodexApiServicePageController() {
     formatLatencyMs,
     formatRequestResultDetail,
     formatUsdCost,
-    gatewayModeLabel,
     groups,
     handleActivateService,
     launchPreviewOpen,
@@ -3736,8 +3694,6 @@ export function useCodexApiServicePageController() {
     requestLogError,
     requestLogErrorQuery,
     requestLogEvents,
-    requestLogGatewayModeFilter,
-    requestLogGatewayModeOptions,
     requestLogInstanceOptions,
     requestLogInstanceQuery,
     requestLogKindFilter,
@@ -3790,7 +3746,6 @@ export function useCodexApiServicePageController() {
     setRequestLogAccountQuery,
     setRequestLogApiKeyQuery,
     setRequestLogErrorQuery,
-    setRequestLogGatewayModeFilter,
     setRequestLogInstanceQuery,
     setRequestLogKindFilter,
     setRequestLogModelQuery,

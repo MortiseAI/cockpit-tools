@@ -1930,6 +1930,7 @@ fn normalize_collection_api_keys(collection: &mut CodexLocalAccessCollection) ->
     changed
 }
 
+#[cfg(test)]
 fn resolve_collection_api_key(
     collection: &CodexLocalAccessCollection,
     api_key: &str,
@@ -1974,6 +1975,7 @@ fn resolve_collection_api_key(
         })
 }
 
+#[cfg(test)]
 fn scoped_collection_account_ids(
     collection: &CodexLocalAccessCollection,
     api_key: &ResolvedLocalApiKey,
@@ -1985,6 +1987,7 @@ fn scoped_collection_account_ids(
     }
 }
 
+#[cfg(test)]
 fn api_key_priority_account_ids(
     collection: &CodexLocalAccessCollection,
     api_key: &ResolvedLocalApiKey,

@@ -681,16 +681,6 @@ pub fn is_pending_oauth_account(account: &CodexAccount) -> bool {
             .unwrap_or(false)
 }
 
-fn is_standard_oauth_account(account: &CodexAccount) -> bool {
-    !account.is_api_key_auth()
-        && account.agent_identity.is_none()
-        && !is_pending_oauth_account(account)
-        && account.token_source_mode.trim() != CODEX_TOKEN_SOURCE_WEB_SESSION
-        && !account.tokens.access_token.trim().is_empty()
-        && !account.tokens.access_token.trim().starts_with("at-")
-        && (!account.tokens.id_token.trim().is_empty() || account_has_refresh_token(account))
-}
-
 fn clear_stale_missing_refresh_token_reauth(account: &mut CodexAccount) -> Result<(), String> {
     let is_missing_refresh_token_reauth = account
         .reauth_reason
@@ -745,15 +735,6 @@ fn clear_retired_app_server_preflight_reauth(account: &mut CodexAccount) -> bool
     account.requires_reauth = false;
     account.reauth_reason = None;
     true
-}
-
-pub fn mark_access_token_only_account_requires_reauth(account_id: &str) -> Result<(), String> {
-    let mut account =
-        load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
-    if account.is_api_key_auth() || account_has_refresh_token(&account) {
-        return Ok(());
-    }
-    mark_account_requires_reauth(&mut account, CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON)
 }
 
 fn retain_existing_refresh_token_if_missing(

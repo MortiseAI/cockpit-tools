@@ -52,6 +52,7 @@ fn image_generation_tools_allowed(
     }
 }
 
+#[cfg(test)]
 fn request_image_generation_mode(
     collection_mode: CodexLocalAccessImageGenerationMode,
     headers: &HashMap<String, String>,
@@ -81,6 +82,7 @@ fn request_image_generation_mode(
     }
 }
 
+#[cfg(test)]
 fn build_images_responses_body(prompt: &str, images: &[String], tool: Value) -> Value {
     let mut content = vec![json!({
         "type": "input_text",
@@ -120,6 +122,7 @@ fn build_images_responses_body(prompt: &str, images: &[String], tool: Value) -> 
     })
 }
 
+#[cfg(test)]
 fn build_images_generation_request(body: &Value) -> Result<(Value, bool, String), String> {
     let request_obj = body
         .as_object()
@@ -140,6 +143,7 @@ fn build_images_generation_request(body: &Value) -> Result<(Value, bool, String)
     ))
 }
 
+#[cfg(test)]
 fn extract_json_edit_images(request_obj: &Map<String, Value>) -> Vec<String> {
     let mut images = Vec::new();
 
@@ -172,6 +176,7 @@ fn extract_json_edit_images(request_obj: &Map<String, Value>) -> Vec<String> {
     images
 }
 
+#[cfg(test)]
 fn build_images_edit_request_from_json(body: &Value) -> Result<(Value, bool, String), String> {
     let request_obj = body
         .as_object()
@@ -211,6 +216,7 @@ fn build_images_edit_request_from_json(body: &Value) -> Result<(Value, bool, Str
     ))
 }
 
+#[cfg(test)]
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
@@ -220,6 +226,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+#[cfg(test)]
 fn extract_multipart_boundary(content_type: &str) -> Option<String> {
     content_type.split(';').find_map(|part| {
         let trimmed = part.trim();
@@ -236,6 +243,7 @@ fn extract_multipart_boundary(content_type: &str) -> Option<String> {
     })
 }
 
+#[cfg(test)]
 fn parse_content_disposition_params(value: &str) -> HashMap<String, String> {
     let mut params = HashMap::new();
     for part in value.split(';').skip(1) {
@@ -251,6 +259,7 @@ fn parse_content_disposition_params(value: &str) -> HashMap<String, String> {
     params
 }
 
+#[cfg(test)]
 fn trim_part_trailing_newline(mut data: &[u8]) -> &[u8] {
     if data.ends_with(b"\r\n") {
         data = &data[..data.len().saturating_sub(2)];
@@ -260,6 +269,7 @@ fn trim_part_trailing_newline(mut data: &[u8]) -> &[u8] {
     data
 }
 
+#[cfg(test)]
 fn parse_multipart_form_data(content_type: &str, body: &[u8]) -> Result<MultipartFormData, String> {
     let boundary = extract_multipart_boundary(content_type)
         .ok_or("multipart/form-data 缺少 boundary".to_string())?;
@@ -342,6 +352,7 @@ fn parse_multipart_form_data(content_type: &str, body: &[u8]) -> Result<Multipar
     Ok(form)
 }
 
+#[cfg(test)]
 fn detect_image_mime_type(data: &[u8], fallback: &str) -> String {
     let fallback = fallback.trim();
     if !fallback.is_empty() && fallback != "application/octet-stream" {
@@ -365,6 +376,7 @@ fn detect_image_mime_type(data: &[u8], fallback: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn multipart_file_to_data_url(file: &MultipartFilePart) -> String {
     let mime_type = detect_image_mime_type(&file.data, &file.content_type);
     format!(
@@ -374,6 +386,7 @@ fn multipart_file_to_data_url(file: &MultipartFilePart) -> String {
     )
 }
 
+#[cfg(test)]
 fn multipart_field_value<'a>(form: &'a MultipartFormData, key: &str) -> Option<&'a str> {
     form.fields
         .get(key)
@@ -382,6 +395,7 @@ fn multipart_field_value<'a>(form: &'a MultipartFormData, key: &str) -> Option<&
         .filter(|value| !value.is_empty())
 }
 
+#[cfg(test)]
 fn multipart_field_bool(form: &MultipartFormData, key: &str, fallback: bool) -> bool {
     match multipart_field_value(form, key)
         .unwrap_or("")
@@ -394,11 +408,13 @@ fn multipart_field_bool(form: &MultipartFormData, key: &str, fallback: bool) -> 
     }
 }
 
+#[cfg(test)]
 fn multipart_field_number(form: &MultipartFormData, key: &str) -> Option<Value> {
     let raw = multipart_field_value(form, key)?;
     raw.parse::<i64>().ok().map(|value| json!(value))
 }
 
+#[cfg(test)]
 fn build_images_edit_request_from_multipart(
     content_type: &str,
     body: &[u8],
@@ -468,6 +484,7 @@ fn build_images_edit_request_from_multipart(
     ))
 }
 
+#[cfg(test)]
 fn build_request_routing_hint(request: &ParsedRequest) -> RequestRoutingHint {
     let Some(body) = parse_request_body_json(&request.body) else {
         return RequestRoutingHint {
@@ -493,6 +510,7 @@ fn build_request_routing_hint(request: &ParsedRequest) -> RequestRoutingHint {
     }
 }
 
+#[cfg(test)]
 fn is_chat_completions_request(target: &str) -> bool {
     let path = target.split('?').next().unwrap_or(target).trim();
     path == CHAT_COMPLETIONS_PATH || path.ends_with("/chat/completions")
@@ -502,6 +520,7 @@ fn is_responses_completion_event(event_type: &str) -> bool {
     matches!(event_type, "response.completed" | "response.done")
 }
 
+#[cfg(test)]
 fn response_text_type_for_role(role: &str) -> &'static str {
     if role.eq_ignore_ascii_case("assistant") {
         "output_text"
@@ -510,6 +529,7 @@ fn response_text_type_for_role(role: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn truncate_to_byte_limit(value: &str, limit: usize) -> String {
     if value.len() <= limit {
         return value.to_string();
@@ -526,6 +546,7 @@ fn truncate_to_byte_limit(value: &str, limit: usize) -> String {
     value[..end].to_string()
 }
 
+#[cfg(test)]
 fn shorten_tool_name_if_needed(name: &str) -> String {
     const LIMIT: usize = 64;
     if name.len() <= LIMIT {
@@ -542,6 +563,7 @@ fn shorten_tool_name_if_needed(name: &str) -> String {
     truncate_to_byte_limit(name, LIMIT)
 }
 
+#[cfg(test)]
 fn build_short_tool_name_map(body: &Value) -> HashMap<String, String> {
     const LIMIT: usize = 64;
 
@@ -590,6 +612,7 @@ fn build_short_tool_name_map(body: &Value) -> HashMap<String, String> {
     short_name_map
 }
 
+#[cfg(test)]
 fn build_reverse_tool_name_map_from_request(
     original_request_body: &[u8],
 ) -> HashMap<String, String> {
@@ -603,6 +626,7 @@ fn build_reverse_tool_name_map_from_request(
         .collect()
 }
 
+#[cfg(test)]
 fn map_tool_name(name: &str, short_name_map: &HashMap<String, String>) -> String {
     short_name_map
         .get(name)
@@ -610,6 +634,7 @@ fn map_tool_name(name: &str, short_name_map: &HashMap<String, String>) -> String
         .unwrap_or_else(|| shorten_tool_name_if_needed(name))
 }
 
+#[cfg(test)]
 fn normalize_chat_content_part(part: &Value, role: &str) -> Option<Value> {
     match part {
         Value::String(text) => Some(json!({
@@ -679,6 +704,7 @@ fn normalize_chat_content_part(part: &Value, role: &str) -> Option<Value> {
     }
 }
 
+#[cfg(test)]
 fn normalize_chat_content_parts(content: &Value, role: &str) -> Vec<Value> {
     match content {
         Value::Array(parts) => parts
@@ -691,6 +717,7 @@ fn normalize_chat_content_parts(content: &Value, role: &str) -> Vec<Value> {
     }
 }
 
+#[cfg(test)]
 fn normalize_chat_tool_call(
     tool_call: &Value,
     short_name_map: &HashMap<String, String>,
@@ -728,6 +755,7 @@ fn normalize_chat_tool_call(
     }))
 }
 
+#[cfg(test)]
 fn normalize_chat_tool_calls(
     tool_calls: &Value,
     short_name_map: &HashMap<String, String>,
@@ -743,6 +771,7 @@ fn normalize_chat_tool_calls(
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn normalize_chat_message_for_responses(
     message_obj: &Map<String, Value>,
     short_name_map: &HashMap<String, String>,
@@ -797,6 +826,7 @@ fn normalize_chat_message_for_responses(
     items
 }
 
+#[cfg(test)]
 fn normalize_chat_messages_for_responses(
     messages: &Value,
     short_name_map: &HashMap<String, String>,
@@ -820,6 +850,7 @@ fn normalize_chat_messages_for_responses(
     Value::Array(normalized)
 }
 
+#[cfg(test)]
 fn normalize_chat_tool(tool: &Value, short_name_map: &HashMap<String, String>) -> Option<Value> {
     let tool_obj = tool.as_object()?;
     let tool_type = tool_obj
@@ -862,6 +893,7 @@ fn normalize_chat_tool(tool: &Value, short_name_map: &HashMap<String, String>) -
     Some(Value::Object(normalized))
 }
 
+#[cfg(test)]
 fn normalize_chat_tools(tools: &Value, short_name_map: &HashMap<String, String>) -> Value {
     Value::Array(
         tools
@@ -876,6 +908,7 @@ fn normalize_chat_tools(tools: &Value, short_name_map: &HashMap<String, String>)
     )
 }
 
+#[cfg(test)]
 fn normalize_chat_tool_choice(
     tool_choice: &Value,
     short_name_map: &HashMap<String, String>,
@@ -911,6 +944,7 @@ fn normalize_chat_tool_choice(
     })
 }
 
+#[cfg(test)]
 fn extract_message_content_text(content: &Value) -> String {
     match content {
         Value::String(raw) => raw.to_string(),
@@ -931,6 +965,7 @@ fn extract_message_content_text(content: &Value) -> String {
     }
 }
 
+#[cfg(test)]
 fn build_responses_body_from_chat_completions(
     body: &Value,
 ) -> Result<(Value, bool, String), String> {
@@ -1081,6 +1116,7 @@ fn normalize_upstream_inject_service_tier(value: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
 fn apply_default_service_tier_if_missing(body_value: &mut Value, service_tier: Option<&str>) {
     let Some(service_tier) = service_tier.and_then(normalize_upstream_inject_service_tier) else {
         return;
@@ -1097,6 +1133,7 @@ fn apply_default_service_tier_if_missing(body_value: &mut Value, service_tier: O
     );
 }
 
+#[cfg(test)]
 fn request_body_has_service_tier(body_value: &Value) -> bool {
     body_value
         .as_object()
@@ -1104,6 +1141,7 @@ fn request_body_has_service_tier(body_value: &Value) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn service_tier_from_request_body(body: &[u8]) -> Option<String> {
     parse_request_body_json(body).and_then(|value| {
         value
@@ -1114,6 +1152,7 @@ fn service_tier_from_request_body(body: &[u8]) -> Option<String> {
     })
 }
 
+#[cfg(test)]
 fn normalize_proxy_reasoning_effort(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
         "none" | "minimal" | "min" => Some("minimal"),
@@ -1142,6 +1181,7 @@ fn normalize_recorded_reasoning_effort(value: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
 fn reasoning_effort_from_request_body(body: &[u8]) -> Option<String> {
     let value = parse_request_body_json(body)?;
     if let Some(effort) = value
@@ -1193,6 +1233,7 @@ fn sidecar_payload_default_service_tier(default_service_tier: Option<&str>) -> O
     Some(Value::Object(payload))
 }
 
+#[cfg(test)]
 fn prepare_gateway_request_with_default_service_tier(
     mut request: ParsedRequest,
     default_service_tier: Option<&str>,
@@ -1402,6 +1443,7 @@ fn extract_output_text_from_response(response_body: &Value) -> String {
     text
 }
 
+#[cfg(test)]
 fn extract_reasoning_text_from_response(response_body: &Value) -> String {
     let root = response_payload_root(response_body);
     let mut reasoning_text = String::new();
@@ -1425,6 +1467,7 @@ fn extract_reasoning_text_from_response(response_body: &Value) -> String {
     reasoning_text
 }
 
+#[cfg(test)]
 fn extract_response_tool_calls(
     response_body: &Value,
     reverse_tool_name_map: &HashMap<String, String>,
@@ -1473,6 +1516,7 @@ fn extract_response_tool_calls(
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn build_chat_completion_message(
     response_body: &Value,
     reverse_tool_name_map: &HashMap<String, String>,
@@ -1502,6 +1546,7 @@ fn build_chat_completion_message(
     Value::Object(message)
 }
 
+#[cfg(test)]
 fn resolve_chat_finish_reason(response_body: &Value, has_tool_calls: bool) -> String {
     let root = response_payload_root(response_body);
     if root.get("status").and_then(Value::as_str) == Some("completed") {
@@ -1515,6 +1560,7 @@ fn resolve_chat_finish_reason(response_body: &Value, has_tool_calls: bool) -> St
     }
 }
 
+#[cfg(test)]
 fn build_chat_completion_payload(
     response_body: &Value,
     requested_model: &str,
@@ -1576,6 +1622,7 @@ fn build_chat_completion_payload(
 }
 
 #[derive(Debug, Default)]
+#[cfg(test)]
 struct ChatCompletionStreamState {
     response_id: String,
     created_at: i64,
@@ -1585,6 +1632,7 @@ struct ChatCompletionStreamState {
     has_tool_call_announced: bool,
 }
 
+#[cfg(test)]
 fn push_sse_payload(stream_body: &mut String, payload: Value) {
     stream_body.push_str("data: ");
     stream_body.push_str(
@@ -1596,6 +1644,7 @@ fn push_sse_payload(stream_body: &mut String, payload: Value) {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct ChatCompletionStreamTransformer {
     reverse_tool_name_map: HashMap<String, String>,
     requested_model: String,
@@ -1604,6 +1653,7 @@ struct ChatCompletionStreamTransformer {
     response_capture: ResponseCapture,
 }
 
+#[cfg(test)]
 impl ChatCompletionStreamTransformer {
     fn new(original_request_body: &[u8], requested_model: &str) -> Self {
         Self {
@@ -1873,6 +1923,7 @@ impl ChatCompletionStreamTransformer {
     }
 }
 
+#[cfg(test)]
 fn build_chat_chunk_template(
     state: &ChatCompletionStreamState,
     requested_model: &str,

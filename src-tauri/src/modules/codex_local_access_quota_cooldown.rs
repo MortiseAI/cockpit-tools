@@ -193,6 +193,7 @@ fn clear_runtime_quota_cooldowns(runtime: &mut GatewayRuntime, account_ids: &[St
     }
 }
 
+#[cfg(test)]
 async fn account_quota_blocks_dispatch(account_id: &str, model: &str) -> bool {
     if model.trim().eq_ignore_ascii_case(CODEX_GPT_RESERVE_MODEL_ID) {
         return false;

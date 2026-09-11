@@ -11,6 +11,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessApiKeyStats, CodexLocalAccessAppendAccountSkipped,
     CodexLocalAccessAppendAccountsResult, CodexLocalAccessChatMessage, CodexLocalAccessChatResult,
     CodexLocalAccessClientBaseUrlHost, CodexLocalAccessCollection,
+    DEFAULT_CODEX_IMAGE_GENERATION_MODEL,
     CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode, CodexLocalAccessLaunchMode,
     CodexLocalAccessImageGenerationMode, CodexLocalAccessImageGenerationPolicy,
     CodexLocalAccessImageGenerationStatus, CodexLocalAccessModelAlias,
@@ -30,12 +31,16 @@ use crate::models::{CodexInstanceApiRoute, CodexInstanceModelRouting};
 use crate::modules::atomic_write::{write_string_atomic, write_string_atomic_if_hash_matches};
 use crate::modules::{
     account, codex_account, codex_agent_identity, codex_oauth, codex_protocol, codex_quota,
-    codex_wakeup, config, logger, process,
+    codex_wakeup, logger, process,
 };
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Datelike, Duration as ChronoDuration, Local, LocalResult, NaiveDate, TimeZone, Timelike};
-use futures_util::{stream, SinkExt, StreamExt};
-use rand::{distributions::Alphanumeric, seq::SliceRandom, Rng};
+#[cfg(test)]
+use futures_util::SinkExt;
+use futures_util::{stream, StreamExt};
+#[cfg(test)]
+use rand::seq::SliceRandom;
+use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use reqwest::{Client, Method, Proxy, StatusCode, Url};
 use rusqlite::{
@@ -56,20 +61,32 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
+#[cfg(test)]
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(test)]
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command as TokioCommand};
 use tokio::sync::{oneshot, watch, Mutex as TokioMutex, Notify};
 use tokio::time::{timeout, Duration};
+#[cfg(test)]
+use tokio_tungstenite::client_async_tls_with_config;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::handshake::client::Request as WsClientRequest;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::http::header::{
     HeaderName as WsHeaderName, HeaderValue as WsHeaderValue,
 };
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::protocol::Role;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::Error as WsError;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{client_async_tls_with_config, MaybeTlsStream, WebSocketStream};
+#[cfg(test)]
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use toml_edit::{value, Document};
 
 const CODEX_LOCAL_ACCESS_FILE: &str = "codex_local_access.json";
@@ -136,7 +153,9 @@ const CODEX_LEGACY_LOCAL_ACCESS_MODEL_CATALOG_FILE: &str =
 const CODEX_LEGACY_PROVIDER_MODEL_CATALOG_FILE: &str = "cockpit-provider-model-catalog.json";
 const CODEX_MODEL_CACHE_FILE: &str = "models_cache.json";
 const CODEX_PROVIDER_MODEL_BACKUP_FILE: &str = ".cockpit-provider-model-backup.json";
+#[cfg(test)]
 const MAX_HTTP_REQUEST_BYTES: usize = 256 * 1024 * 1024;
+#[cfg(test)]
 const DEFAULT_REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_REQUEST_RETRY_ATTEMPTS: usize = 1;
 const DEFAULT_UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -149,7 +168,9 @@ fn is_cockpit_managed_model_catalog_name(value: &str) -> bool {
             | CODEX_LEGACY_PROVIDER_MODEL_CATALOG_FILE
     )
 }
+#[cfg(test)]
 const DEFAULT_UPSTREAM_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+#[cfg(test)]
 const DEFAULT_UPSTREAM_STREAM_TOTAL_TIMEOUT: Duration = Duration::from_secs(180);
 const STATS_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_RETRY_CREDENTIALS_PER_REQUEST: usize = 8;
@@ -208,16 +229,21 @@ const DEFAULT_CODEX_USER_AGENT: &str =
     "codex-tui/0.153.4 (Mac OS 26.5.0; arm64) iTerm.app/3.6.10 (codex-tui; 0.153.4)";
 const DEFAULT_CODEX_ORIGINATOR: &str = "codex-tui";
 const CODEX_RESPONSES_WEBSOCKET_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
+#[cfg(test)]
 const CODEX_RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
+#[cfg(test)]
 const MAX_GPT_REASONING_SIGNATURE_LEN: usize = 32 * 1024 * 1024;
+#[cfg(test)]
 const CODEX_WEBSOCKET_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
 const CODEX_WEBSOCKET_INITIAL_MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
-#[cfg(not(test))]
-const CODEX_WEBSOCKET_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 #[cfg(test)]
 const CODEX_WEBSOCKET_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(25);
+#[cfg(test)]
 const CODEX_WEBSOCKET_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+#[cfg(test)]
 const CODEX_WEBSOCKET_PROXY_CONNECT_MAX_BYTES: usize = 16 * 1024;
+#[cfg(test)]
 const CORS_ALLOW_HEADERS: &str = "Authorization, Content-Type, OpenAI-Beta, X-API-Key, X-Codex-Beta-Features, X-Codex-Turn-State, X-Codex-Turn-Metadata, X-Client-Request-Id, X-ResponsesAPI-Include-Timing-Metrics, Version, Originator, Session-Id, Session_id, Conversation_id, ChatGPT-Account-Id, X-Codex-Window-Id, Thread-Id";
 const CODEX_OFFICIAL_EMPTY_HEADERS: &[&str] = &[
     "version",
@@ -231,9 +257,11 @@ const CODEX_OFFICIAL_EMPTY_HEADERS: &[&str] = &[
 ];
 const LEGACY_DEFAULT_CODEX_MODELS: &[&str] = &["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 const COMPATIBILITY_CODEX_MODELS: &[&str] = &["gpt-5.3-codex", "gpt-5.3-codex-spark"];
-const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
+const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2.5";
+const LEGACY_CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
 const CODEX_GPT_RESERVE_MODEL_ID: &str = "gpt-reserve";
 const CODEX_AUTO_REVIEW_MODEL_ID: &str = "codex-auto-review";
+#[cfg(test)]
 const DEFAULT_IMAGES_MAIN_MODEL: &str = "gpt-5.5";
 const MAX_MODEL_PRICE_USD_PER_MILLION: f64 = 1_000_000.0;
 const CODEX_LOCAL_ACCESS_LONG_CONTEXT_THRESHOLD_TOKENS: u64 = 272_000;
@@ -245,11 +273,15 @@ const CODEX_LOCAL_ACCESS_LONG_CONTEXT_CACHE_MULTIPLIER: f64 = 2.0;
 const CODEX_LOCAL_ACCESS_LONG_CONTEXT_OUTPUT_MULTIPLIER: f64 = 1.5;
 const CHAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
 const RESPONSES_PATH: &str = "/v1/responses";
+#[cfg(test)]
 const RESPONSES_COMPACT_PATH: &str = "/v1/responses/compact";
 const BACKEND_CODEX_PREFIX: &str = "/backend-api/codex";
 const BACKEND_CODEX_RESPONSES_PATH: &str = "/backend-api/codex/responses";
+#[cfg(test)]
 const BACKEND_CODEX_RESPONSES_COMPACT_PATH: &str = "/backend-api/codex/responses/compact";
+#[cfg(test)]
 const IMAGES_GENERATIONS_PATH: &str = "/v1/images/generations";
+#[cfg(test)]
 const IMAGES_EDITS_PATH: &str = "/v1/images/edits";
 static GATEWAY_RUNTIME: OnceLock<TokioMutex<GatewayRuntime>> = OnceLock::new();
 static GATEWAY_RUNTIME_LOAD_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
@@ -277,6 +309,7 @@ static LOCAL_ACCESS_LOGS_DB_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static PROVIDER_GATEWAY_RUNTIMES: OnceLock<TokioMutex<HashMap<String, ProviderGatewayRuntime>>> =
     OnceLock::new();
 static PROVIDER_GATEWAY_LIFECYCLE_LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
+#[cfg(test)]
 static GATEWAY_ROUND_ROBIN_CURSOR: AtomicUsize = AtomicUsize::new(0);
 static UPSTREAM_HTTP_CLIENT: OnceLock<Mutex<Option<CachedUpstreamHttpClient>>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_REFRESH_FAILURES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -285,7 +318,6 @@ static BOUND_OAUTH_QUOTA_REFRESH_CONTROL: OnceLock<TokioMutex<BoundOauthQuotaRef
 static SIDECAR_AUTO_RESTART_CONTROL: OnceLock<Mutex<SidecarAutoRestartControl>> = OnceLock::new();
 static SIDECAR_CRASH_RECOVERY_CONTROL: OnceLock<Mutex<SidecarAutoRestartControl>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_MONITOR_STARTED: AtomicBool = AtomicBool::new(false);
-static CODEX_CLIENT_POLICY_SYNC_RUNNING: AtomicBool = AtomicBool::new(false);
 static MODEL_PROVIDER_CHAT_TEST_CANCELLATION: OnceLock<ModelProviderChatTestCancellationState> =
     OnceLock::new();
 
@@ -558,6 +590,7 @@ struct UsageCapture {
 }
 
 #[derive(Debug, Clone, Default)]
+#[cfg(test)]
 struct ResponseCapture {
     usage: Option<UsageCapture>,
     response_id: Option<String>,
@@ -575,6 +608,7 @@ struct UpstreamResponseFailedSignal {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct WebSocketUpstreamError {
     status: u16,
     body: String,
@@ -583,6 +617,7 @@ struct WebSocketUpstreamError {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct WebSocketConnectError {
     status: Option<u16>,
     message: String,
@@ -590,12 +625,14 @@ struct WebSocketConnectError {
 }
 
 #[derive(Debug, Clone, Default)]
+#[cfg(test)]
 struct WebSocketBridgeResult {
     capture: ResponseCapture,
     upstream_error: Option<WebSocketUpstreamError>,
 }
 
 #[derive(Debug, Clone, Default)]
+#[cfg(test)]
 struct ImageCallResult {
     result: String,
     revised_prompt: String,
@@ -606,6 +643,7 @@ struct ImageCallResult {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct MultipartFilePart {
     name: String,
     content_type: String,
@@ -613,6 +651,7 @@ struct MultipartFilePart {
 }
 
 #[derive(Debug, Clone, Default)]
+#[cfg(test)]
 struct MultipartFormData {
     fields: HashMap<String, String>,
     files: Vec<MultipartFilePart>,
@@ -699,6 +738,7 @@ enum UpstreamProxySource {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct UpstreamProxyDiagnostics {
     proxy_source: UpstreamProxySource,
     proxy_url: Option<String>,
@@ -711,6 +751,7 @@ struct CachedUpstreamHttpClient {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct ProxyDispatchSuccess {
     upstream: reqwest::Response,
     account_id: String,
@@ -718,6 +759,7 @@ struct ProxyDispatchSuccess {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct ProxyDispatchError {
     status: u16,
     message: String,
@@ -727,6 +769,7 @@ struct ProxyDispatchError {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct ResolvedLocalApiKey {
     id: String,
     label: String,
@@ -741,6 +784,7 @@ struct ResolvedLocalApiKey {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct RequestStatsContext {
     request_kind: CodexLocalAccessRequestKind,
     model_id: String,
@@ -748,6 +792,7 @@ struct RequestStatsContext {
     api_key_label: String,
 }
 
+#[cfg(test)]
 struct ResponseUsageCollector {
     is_stream: bool,
     body: Vec<u8>,
@@ -759,6 +804,7 @@ struct ResponseUsageCollector {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct ParsedRequest {
     method: String,
     target: String,
@@ -766,6 +812,7 @@ struct ParsedRequest {
     body: Vec<u8>,
 }
 
+#[cfg(test)]
 fn request_uses_responses_lite(request: &ParsedRequest) -> bool {
     request
         .headers
@@ -773,6 +820,7 @@ fn request_uses_responses_lite(request: &ParsedRequest) -> bool {
         .any(|name| name.eq_ignore_ascii_case(CODEX_RESPONSES_LITE_HEADER))
 }
 
+#[cfg(test)]
 fn request_body_uses_responses_lite(request: &ParsedRequest) -> bool {
     request_uses_responses_lite(request)
         || parse_request_body_json(&request.body)
@@ -783,6 +831,7 @@ fn request_body_uses_responses_lite(request: &ParsedRequest) -> bool {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 enum GatewayResponseAdapter {
     Passthrough {
         request_is_stream: bool,
@@ -800,6 +849,7 @@ enum GatewayResponseAdapter {
 }
 
 #[derive(Debug, Clone, Default)]
+#[cfg(test)]
 struct RequestRoutingHint {
     model_key: String,
     previous_response_id: Option<String>,
@@ -807,6 +857,7 @@ struct RequestRoutingHint {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct WebSocketDispatchSuccess {
     upstream: WebSocketStream<MaybeTlsStream<TcpStream>>,
     account: CodexAccount,
@@ -815,6 +866,7 @@ struct WebSocketDispatchSuccess {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(test)]
 struct RoutingCandidate {
     account_id: String,
     plan_rank: Option<i32>,
@@ -1294,6 +1346,7 @@ fn redact_proxy_url_for_log(proxy_url: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn current_upstream_proxy_diagnostics(
     upstream_proxy_url: Option<&str>,
 ) -> UpstreamProxyDiagnostics {
@@ -1449,12 +1502,6 @@ fn account_uses_personal_access_token(account: &CodexAccount) -> bool {
     account_is_access_token_only(account) && account.tokens.access_token.trim().starts_with("at-")
 }
 
-fn account_uses_codex_fingerprint_convergence(account: &CodexAccount) -> bool {
-    !account.is_api_key_auth()
-        && !account.is_agent_identity_auth()
-        && account.token_source_mode.trim() != "chatgpt_web_session"
-        && !account_is_access_token_only(account)
-}
 
 fn prune_prepared_account_cache(runtime: &mut GatewayRuntime, now: i64) {
     let allowed_account_ids = runtime.collection.as_ref().map(|collection| {
@@ -1754,6 +1801,7 @@ fn build_quota_reserve_status(
     })
 }
 
+#[cfg(test)]
 fn apply_bound_oauth_quota_reserve(
     collection: &CodexLocalAccessCollection,
     scoped_account_ids: Vec<String>,
@@ -1782,6 +1830,7 @@ fn apply_bound_oauth_quota_reserve(
     )
 }
 
+#[cfg(test)]
 fn filter_bound_oauth_quota_reserve_account(
     mut scoped_account_ids: Vec<String>,
     bound_account_id: &str,
@@ -1818,6 +1867,7 @@ fn invalidate_prepared_account_if_unlocked(account_id: &str) {
     }
 }
 
+#[cfg(test)]
 fn try_get_cached_account_for_routing(account_id: &str) -> Option<CodexAccount> {
     let Ok(mut runtime) = gateway_runtime().try_lock() else {
         return None;
@@ -2347,6 +2397,7 @@ fn normalize_model_key(model: &str) -> String {
     model.trim().to_ascii_lowercase()
 }
 
+#[cfg(test)]
 fn has_date_snapshot_suffix(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 11
@@ -2425,9 +2476,20 @@ fn apply_codex_image_model_visibility(
     {
         model_ids.push(CODEX_IMAGE_MODEL_ID.to_string());
     }
+    if image_allowed
+        && !model_ids
+            .iter()
+            .any(|model| model.eq_ignore_ascii_case(LEGACY_CODEX_IMAGE_MODEL_ID))
+    {
+        model_ids.push(LEGACY_CODEX_IMAGE_MODEL_ID.to_string());
+    }
     model_ids
         .into_iter()
-        .filter(|model| image_allowed || !model.eq_ignore_ascii_case(CODEX_IMAGE_MODEL_ID))
+        .filter(|model| {
+            image_allowed
+                || (!model.eq_ignore_ascii_case(CODEX_IMAGE_MODEL_ID)
+                    && !model.eq_ignore_ascii_case(LEGACY_CODEX_IMAGE_MODEL_ID))
+        })
         .collect()
 }
 
@@ -2537,10 +2599,12 @@ fn sidecar_scheduler_blocks_account(health: Option<&RuntimeAccountHealth>, now: 
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn account_health_blocks_dispatch(health: Option<&RuntimeAccountHealth>, now: i64) -> bool {
     account_health_blocks_routing(health) || sidecar_scheduler_blocks_account(health, now)
 }
 
+#[cfg(test)]
 async fn account_id_blocked_by_health(account_id: &str) -> bool {
     let account_id = account_id.trim();
     if account_id.is_empty() {
@@ -2766,6 +2830,7 @@ fn apply_model_filters(
         .collect()
 }
 
+#[cfg(test)]
 fn strip_model_prefix<'a>(model: &'a str, prefix: Option<&str>) -> &'a str {
     let Some(prefix) = prefix.map(str::trim).filter(|item| !item.is_empty()) else {
         return model.trim();
@@ -2778,6 +2843,7 @@ fn strip_model_prefix<'a>(model: &'a str, prefix: Option<&str>) -> &'a str {
         .unwrap_or(trimmed)
 }
 
+#[cfg(test)]
 fn add_model_prefix(model_ids: Vec<String>, prefix: Option<&str>) -> Vec<String> {
     let Some(prefix) = prefix.map(str::trim).filter(|item| !item.is_empty()) else {
         return model_ids;
@@ -2797,6 +2863,7 @@ fn visible_codex_model_ids_for_collection(
     apply_model_filters(aliased, &[], &collection.excluded_models)
 }
 
+#[cfg(test)]
 fn visible_codex_model_ids_for_api_key(
     collection: &CodexLocalAccessCollection,
     api_key: &ResolvedLocalApiKey,
@@ -2826,6 +2893,7 @@ fn visible_codex_model_ids_for_api_key_with_accounts(
     )
 }
 
+#[cfg(test)]
 fn visible_codex_model_ids_for_api_key_with_optional_accounts(
     collection: &CodexLocalAccessCollection,
     api_key: &ResolvedLocalApiKey,
@@ -2841,6 +2909,7 @@ fn visible_codex_model_ids_for_api_key_with_optional_accounts(
     )
 }
 
+#[cfg(test)]
 fn visible_codex_model_ids_for_api_key_with_supported_models(
     collection: &CodexLocalAccessCollection,
     api_key: &ResolvedLocalApiKey,
@@ -2888,12 +2957,14 @@ fn visible_codex_model_ids_for_api_key_with_supported_models(
     append_codex_internal_model_ids(add_model_prefix(filtered, api_key.model_prefix.as_deref()))
 }
 
+#[cfg(test)]
 fn is_codex_internal_model(model: &str) -> bool {
     model
         .trim()
         .eq_ignore_ascii_case(CODEX_AUTO_REVIEW_MODEL_ID)
 }
 
+#[cfg(test)]
 fn append_codex_internal_model_ids(mut model_ids: Vec<String>) -> Vec<String> {
     if !model_ids.iter().any(|model| is_codex_internal_model(model)) {
         model_ids.push(CODEX_AUTO_REVIEW_MODEL_ID.to_string());
@@ -2901,6 +2972,7 @@ fn append_codex_internal_model_ids(mut model_ids: Vec<String>) -> Vec<String> {
     model_ids
 }
 
+#[cfg(test)]
 fn canonical_model_for_client_model(
     model: &str,
     collection: &CodexLocalAccessCollection,
@@ -2918,6 +2990,7 @@ fn canonical_model_for_client_model(
     resolve_supported_model_alias(without_prefix)
 }
 
+#[cfg(test)]
 fn validate_client_model_visible(
     model: &str,
     canonical_model: &str,
@@ -2948,6 +3021,7 @@ fn validate_client_model_visible(
         && !model_matches_any_rule(canonical_model, &api_key.excluded_models)
 }
 
+#[cfg(test)]
 fn rewrite_request_model_for_access_policy_value(
     body_value: &mut Value,
     collection: &CodexLocalAccessCollection,
@@ -2986,6 +3060,7 @@ fn rewrite_request_model_for_access_policy_value(
     Ok(true)
 }
 
+#[cfg(test)]
 fn rewrite_request_model_for_access_policy(
     request: &mut ParsedRequest,
     collection: &CodexLocalAccessCollection,
@@ -3008,6 +3083,7 @@ fn rewrite_request_model_for_access_policy(
     Ok(())
 }
 
+#[cfg(test)]
 fn resolve_supported_model_alias(model: &str) -> String {
     let trimmed = model.trim();
     let normalized = trimmed.to_ascii_lowercase();
@@ -3027,6 +3103,7 @@ fn resolve_supported_model_alias(model: &str) -> String {
     trimmed.to_string()
 }
 
+#[cfg(test)]
 fn rewrite_request_model_alias(body: &[u8]) -> Result<Option<Vec<u8>>, String> {
     let Some(mut body_value) = parse_request_body_json(body) else {
         return Ok(None);
@@ -3041,6 +3118,7 @@ fn rewrite_request_model_alias(body: &[u8]) -> Result<Option<Vec<u8>>, String> {
         .map_err(|e| format!("重写请求 model 失败: {}", e))
 }
 
+#[cfg(test)]
 fn rewrite_request_model_alias_value(body_value: &mut Value) -> bool {
     let Some(body_obj) = body_value.as_object_mut() else {
         return false;
@@ -3069,11 +3147,13 @@ fn proxy_target_path(target: &str) -> &str {
     target.split('?').next().unwrap_or(target).trim()
 }
 
+#[cfg(test)]
 fn is_images_generations_request(target: &str) -> bool {
     let path = proxy_target_path(target);
     path == IMAGES_GENERATIONS_PATH || path.ends_with("/images/generations")
 }
 
+#[cfg(test)]
 fn is_images_edits_request(target: &str) -> bool {
     let path = proxy_target_path(target);
     path == IMAGES_EDITS_PATH || path.ends_with("/images/edits")
@@ -3084,6 +3164,7 @@ fn is_responses_request(target: &str) -> bool {
     path == RESPONSES_PATH || path == BACKEND_CODEX_RESPONSES_PATH || path.ends_with("/responses")
 }
 
+#[cfg(test)]
 fn is_responses_compact_request(target: &str) -> bool {
     let path = proxy_target_path(target);
     path == RESPONSES_COMPACT_PATH
@@ -3091,15 +3172,18 @@ fn is_responses_compact_request(target: &str) -> bool {
         || path.ends_with("/responses/compact")
 }
 
+#[cfg(test)]
 fn is_backend_codex_request(target: &str) -> bool {
     let path = proxy_target_path(target);
     path == BACKEND_CODEX_PREFIX || path.starts_with(&format!("{}/", BACKEND_CODEX_PREFIX))
 }
 
+#[cfg(test)]
 fn is_backend_codex_responses_websocket_request(target: &str) -> bool {
     proxy_target_path(target) == BACKEND_CODEX_RESPONSES_PATH
 }
 
+#[cfg(test)]
 fn is_supported_proxy_target(target: &str) -> bool {
     target.starts_with("/v1/") || is_backend_codex_request(target)
 }
@@ -3111,6 +3195,7 @@ fn request_kind_is_image(request_kind: CodexLocalAccessRequestKind) -> bool {
     )
 }
 
+#[cfg(test)]
 fn request_kind_from_adapter(adapter: &GatewayResponseAdapter) -> CodexLocalAccessRequestKind {
     match adapter {
         GatewayResponseAdapter::ChatCompletions { .. } => CodexLocalAccessRequestKind::Text,
@@ -3125,6 +3210,7 @@ fn request_kind_from_adapter(adapter: &GatewayResponseAdapter) -> CodexLocalAcce
     }
 }
 
+#[cfg(test)]
 fn request_kind_from_target(target: &str) -> CodexLocalAccessRequestKind {
     if is_images_generations_request(target) {
         CodexLocalAccessRequestKind::ImageGeneration
@@ -3135,6 +3221,7 @@ fn request_kind_from_target(target: &str) -> CodexLocalAccessRequestKind {
     }
 }
 
+#[cfg(test)]
 fn extract_request_model_id(body: &[u8]) -> Option<String> {
     parse_request_body_json(body)
         .and_then(|value| {
@@ -3147,6 +3234,7 @@ fn extract_request_model_id(body: &[u8]) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+#[cfg(test)]
 fn stats_model_id_for_request_kind(
     body: &[u8],
     request_kind: CodexLocalAccessRequestKind,
@@ -3157,6 +3245,7 @@ fn stats_model_id_for_request_kind(
     extract_request_model_id(body).unwrap_or_default()
 }
 
+#[cfg(test)]
 fn stats_model_id_from_adapter(
     request: &ParsedRequest,
     adapter: &GatewayResponseAdapter,
@@ -3172,6 +3261,7 @@ fn stats_model_id_from_adapter(
     }
 }
 
+#[cfg(test)]
 fn build_request_stats_context(
     request: &ParsedRequest,
     adapter: &GatewayResponseAdapter,
@@ -3186,6 +3276,7 @@ fn build_request_stats_context(
     }
 }
 
+#[cfg(test)]
 fn normalize_image_model_base(model: &str) -> String {
     let mut base_model = model.trim();
     if let Some(index) = base_model.rfind('/') {
@@ -3196,12 +3287,14 @@ fn normalize_image_model_base(model: &str) -> String {
     base_model.to_string()
 }
 
+#[cfg(test)]
 fn is_gpt_image_generation_model(model: &str) -> bool {
     normalize_image_model_base(model)
         .to_ascii_lowercase()
         .starts_with("gpt-image-")
 }
 
+#[cfg(test)]
 fn normalize_image_response_format(value: Option<&Value>) -> String {
     value
         .and_then(Value::as_str)
@@ -3211,11 +3304,15 @@ fn normalize_image_response_format(value: Option<&Value>) -> String {
         .to_ascii_lowercase()
 }
 
+#[cfg(test)]
 fn validate_image_model(model: &str) -> Result<String, String> {
     let trimmed = model.trim();
     let base_model = normalize_image_model_base(trimmed);
-    if base_model == CODEX_IMAGE_MODEL_ID {
+    if base_model.eq_ignore_ascii_case(CODEX_IMAGE_MODEL_ID) {
         return Ok(CODEX_IMAGE_MODEL_ID.to_string());
+    }
+    if base_model.eq_ignore_ascii_case(LEGACY_CODEX_IMAGE_MODEL_ID) {
+        return Ok(LEGACY_CODEX_IMAGE_MODEL_ID.to_string());
     }
 
     Err(format!(
@@ -3231,6 +3328,7 @@ fn validate_image_model(model: &str) -> Result<String, String> {
     ))
 }
 
+#[cfg(test)]
 fn json_string_field<'a>(object: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
     object
         .get(key)
@@ -3239,6 +3337,7 @@ fn json_string_field<'a>(object: &'a Map<String, Value>, key: &str) -> Option<&'
         .filter(|value| !value.is_empty())
 }
 
+#[cfg(test)]
 fn insert_json_string_field(
     target: &mut Map<String, Value>,
     source: &Map<String, Value>,
@@ -3249,6 +3348,7 @@ fn insert_json_string_field(
     }
 }
 
+#[cfg(test)]
 fn insert_json_number_field(
     target: &mut Map<String, Value>,
     source: &Map<String, Value>,
@@ -3259,6 +3359,7 @@ fn insert_json_number_field(
     }
 }
 
+#[cfg(test)]
 fn build_image_generation_tool(
     source: &Map<String, Value>,
     action: &str,

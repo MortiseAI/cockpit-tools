@@ -1,5 +1,6 @@
 // Codex Local Access：Collection persistence, timeout normalization and gateway lifecycle coordination。
 // 通过 include! 保持原 modules::codex_local_access 作用域和私有调用关系。
+#[cfg(test)]
 fn request_ordered_account_ids(
     collection: &CodexLocalAccessCollection,
     scoped_account_ids: &[String],
@@ -617,6 +618,7 @@ fn prune_runtime_routing_state(runtime: &mut GatewayRuntime, now: i64) {
     }
 }
 
+#[cfg(test)]
 async fn resolve_affinity_account(previous_response_id: &str) -> Option<String> {
     let mut runtime = gateway_runtime().lock().await;
     let now = now_ms();
@@ -627,6 +629,7 @@ async fn resolve_affinity_account(previous_response_id: &str) -> Option<String> 
         .map(|binding| binding.account_id.clone())
 }
 
+#[cfg(test)]
 async fn bind_response_affinity(response_id: &str, account_id: &str) {
     let response_id = response_id.trim();
     let account_id = account_id.trim();
@@ -647,10 +650,12 @@ async fn bind_response_affinity(response_id: &str, account_id: &str) {
     prune_runtime_routing_state(&mut runtime, now);
 }
 
+#[cfg(test)]
 fn session_affinity_binding_key(value: &str) -> String {
     format!("session:{}", value.trim())
 }
 
+#[cfg(test)]
 fn extract_body_string_path(value: &Value, path: &[&str]) -> Option<String> {
     let mut cursor = value;
     for key in path {
@@ -663,6 +668,7 @@ fn extract_body_string_path(value: &Value, path: &[&str]) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(test)]
 fn extract_session_affinity_key(request: &ParsedRequest) -> Option<String> {
     for header in [
         "session-id",
@@ -727,18 +733,22 @@ fn stable_uuid_from_text(value: &str) -> String {
     )
 }
 
+#[cfg(test)]
 fn stable_prompt_cache_key(api_key: &ResolvedLocalApiKey) -> String {
     stable_uuid_from_text(&format!("agtools:codex:prompt-cache:{}", api_key.id))
 }
 
+#[cfg(test)]
 fn stable_codex_installation_id(api_key: &ResolvedLocalApiKey) -> String {
     stable_uuid_from_text(&format!("agtools:codex:installation:{}", api_key.id))
 }
 
+#[cfg(test)]
 fn stable_codex_turn_id(api_key: &ResolvedLocalApiKey, session_id: &str) -> String {
     stable_uuid_from_text(&format!("agtools:codex:turn:{}:{}", api_key.id, session_id))
 }
 
+#[cfg(test)]
 fn extract_prompt_cache_key_from_value(value: &Value) -> Option<String> {
     value
         .get("prompt_cache_key")
@@ -748,6 +758,7 @@ fn extract_prompt_cache_key_from_value(value: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(test)]
 fn resolve_prompt_cache_key(
     headers: &HashMap<String, String>,
     body_value: Option<&Value>,
@@ -760,6 +771,7 @@ fn resolve_prompt_cache_key(
         .unwrap_or_else(|| stable_prompt_cache_key(api_key))
 }
 
+#[cfg(test)]
 fn is_valid_gpt_reasoning_signature(raw_signature: &str) -> bool {
     if raw_signature.is_empty()
         || raw_signature.len() > MAX_GPT_REASONING_SIGNATURE_LEN
@@ -785,6 +797,7 @@ fn is_valid_gpt_reasoning_signature(raw_signature: &str) -> bool {
     ciphertext_len > 0 && ciphertext_len % 16 == 0
 }
 
+#[cfg(test)]
 fn sanitize_codex_reasoning_encrypted_content(body_value: &mut Value) -> bool {
     let Some(input_items) = body_value.get_mut("input").and_then(Value::as_array_mut) else {
         return false;
@@ -812,6 +825,7 @@ fn sanitize_codex_reasoning_encrypted_content(body_value: &mut Value) -> bool {
     changed
 }
 
+#[cfg(test)]
 fn build_codex_turn_metadata(session_id: &str, turn_id: &str) -> String {
     let window_id = format!("{}:0", session_id);
     serde_json::to_string(&json!({
@@ -822,6 +836,7 @@ fn build_codex_turn_metadata(session_id: &str, turn_id: &str) -> String {
     .unwrap_or_else(|_| "{}".to_string())
 }
 
+#[cfg(test)]
 fn apply_codex_client_metadata(
     body_obj: &mut Map<String, Value>,
     request: &mut ParsedRequest,
@@ -867,12 +882,14 @@ fn apply_codex_client_metadata(
         .insert("x-codex-turn-metadata".to_string(), turn_metadata);
 }
 
+#[cfg(test)]
 fn ensure_request_header(headers: &mut HashMap<String, String>, name: &str, value: &str) {
     headers
         .entry(name.to_ascii_lowercase())
         .or_insert_with(|| value.to_string());
 }
 
+#[cfg(test)]
 fn apply_codex_official_headers(request: &mut ParsedRequest) {
     if !(is_responses_request(&request.target) || is_responses_compact_request(&request.target)) {
         return;
@@ -883,6 +900,7 @@ fn apply_codex_official_headers(request: &mut ParsedRequest) {
     }
 }
 
+#[cfg(test)]
 fn align_codex_prompt_cache(
     request: &mut ParsedRequest,
     api_key: &ResolvedLocalApiKey,
@@ -916,6 +934,7 @@ fn align_codex_prompt_cache(
     Ok(Some(session_id))
 }
 
+#[cfg(test)]
 async fn touch_local_access_api_key(api_key_id: &str) {
     let api_key_id = api_key_id.trim();
     if api_key_id.is_empty() || api_key_id == "legacy" {
@@ -949,6 +968,7 @@ async fn touch_local_access_api_key(api_key_id: &str) {
     }
 }
 
+#[cfg(test)]
 async fn clear_model_cooldown(account_id: &str, model_key: &str) {
     let Some(cooldown_key) = build_cooldown_key(account_id, model_key) else {
         return;
@@ -960,6 +980,7 @@ async fn clear_model_cooldown(account_id: &str, model_key: &str) {
     runtime.model_cooldowns.remove(&cooldown_key);
 }
 
+#[cfg(test)]
 async fn set_model_cooldown(
     account_id: &str,
     model_key: &str,
@@ -987,6 +1008,7 @@ async fn set_model_cooldown(
     );
 }
 
+#[cfg(test)]
 async fn mark_account_success(account: &CodexAccount, request_kind: CodexLocalAccessRequestKind) {
     let mut runtime = gateway_runtime().lock().await;
     let now = now_ms();
@@ -1007,6 +1029,7 @@ async fn mark_account_success(account: &CodexAccount, request_kind: CodexLocalAc
     }
 }
 
+#[cfg(test)]
 async fn mark_account_failure(
     account: &CodexAccount,
     status: Option<u16>,
@@ -1037,6 +1060,7 @@ async fn mark_account_failure(
     }
 }
 
+#[cfg(test)]
 async fn get_model_cooldown_wait(account_id: &str, model_key: &str) -> Option<Duration> {
     let cooldown_key = build_cooldown_key(account_id, model_key)?;
     let mut runtime = gateway_runtime().lock().await;
@@ -1100,6 +1124,7 @@ async fn wait_for_gateway_port_release(bind_host: &str, port: u16) -> Result<(),
     }
 }
 
+#[cfg(test)]
 async fn bind_gateway_listener(bind_host: &str, port: u16) -> Result<TcpListener, std::io::Error> {
     let deadline = Instant::now() + GATEWAY_PORT_RELEASE_TIMEOUT;
 
@@ -1117,6 +1142,7 @@ async fn bind_gateway_listener(bind_host: &str, port: u16) -> Result<TcpListener
 }
 
 /// 判断端口是否落在保留区间列表内（闭区间）。
+#[cfg(test)]
 pub fn port_in_reserved_ranges(port: u16, ranges: &[(u16, u16)]) -> bool {
     ranges
         .iter()
@@ -1124,6 +1150,7 @@ pub fn port_in_reserved_ranges(port: u16, ranges: &[(u16, u16)]) -> bool {
 }
 
 /// 组装网关绑定失败文案；若命中保留端口区间则追加 Windows 保留端口提示。
+#[cfg(test)]
 pub fn format_gateway_bind_error_message(
     bind_host: &str,
     port: u16,
@@ -1146,7 +1173,7 @@ pub fn format_gateway_bind_error_message(
     format!("启动本地接入服务失败: {}", error)
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(test, target_os = "windows"))]
 fn windows_excluded_tcp_port_ranges() -> Vec<(u16, u16)> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
@@ -1176,12 +1203,13 @@ fn windows_excluded_tcp_port_ranges() -> Vec<(u16, u16)> {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[cfg(test)]
 fn windows_excluded_tcp_port_ranges() -> Vec<(u16, u16)> {
     Vec::new()
 }
 
 /// 解析 `netsh ... excludedportrange` 文本中的起止端口。
-#[cfg(any(test, target_os = "windows"))]
+#[cfg(test)]
 pub fn parse_windows_excluded_port_ranges(output: &str) -> Vec<(u16, u16)> {
     let mut ranges = Vec::new();
     for line in output.lines() {
@@ -1200,6 +1228,7 @@ pub fn parse_windows_excluded_port_ranges(output: &str) -> Vec<(u16, u16)> {
     ranges
 }
 
+#[cfg(test)]
 fn format_gateway_bind_error(bind_host: &str, port: u16, error: &std::io::Error) -> String {
     let reserved = if cfg!(target_os = "windows") {
         windows_excluded_tcp_port_ranges()
@@ -1517,6 +1546,16 @@ fn sanitize_collection_structure(
         collection.image_generation_mode = CodexLocalAccessImageGenerationMode::Enabled;
         changed = true;
     }
+    let normalized_image_generation_model = collection.image_generation_model.trim().to_string();
+    if normalized_image_generation_model.is_empty()
+        || normalized_image_generation_model.chars().count() > 200
+    {
+        collection.image_generation_model = DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string();
+        changed = true;
+    } else if normalized_image_generation_model != collection.image_generation_model {
+        collection.image_generation_model = normalized_image_generation_model;
+        changed = true;
+    }
 
     if collection.port == 0 {
         collection.port = allocate_initial_local_port(bind_host_for_collection(collection))?;
@@ -1783,6 +1822,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 access_scope: CodexLocalAccessScope::Localhost,
                 client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
                 image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
+                image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
                 image_generation_account_policies: HashMap::new(),
                 gateway_mode: CodexLocalAccessGatewayMode::default(),
                 upstream_proxy_url: None,

@@ -1,5 +1,6 @@
 // Codex Local Access：HTTP framing helpers and local gateway request/response plumbing。
 // 通过 include! 保持原 modules::codex_local_access 作用域和私有调用关系。
+#[cfg(test)]
 fn parse_content_length(header_bytes: &[u8]) -> Result<usize, String> {
     let header_text = String::from_utf8_lossy(header_bytes);
     for line in header_text.lines() {
@@ -16,6 +17,7 @@ fn parse_content_length(header_bytes: &[u8]) -> Result<usize, String> {
     Ok(0)
 }
 
+#[cfg(test)]
 async fn read_http_request<R>(
     stream: &mut R,
     request_read_timeout: Duration,
@@ -63,6 +65,7 @@ where
     Err("请求不完整".to_string())
 }
 
+#[cfg(test)]
 fn parse_http_request(raw: &[u8]) -> Result<ParsedRequest, String> {
     let Some(header_end) = find_header_end(raw) else {
         return Err("缺少 HTTP 头结束标记".to_string());
@@ -96,6 +99,7 @@ fn parse_http_request(raw: &[u8]) -> Result<ParsedRequest, String> {
     })
 }
 
+#[cfg(test)]
 fn normalize_proxy_target(target: &str) -> Result<String, String> {
     if target.starts_with("http://") || target.starts_with("https://") {
         let parsed = url::Url::parse(target).map_err(|e| format!("解析请求地址失败: {}", e))?;
@@ -117,6 +121,7 @@ fn normalize_proxy_target(target: &str) -> Result<String, String> {
     Ok(next)
 }
 
+#[cfg(test)]
 fn extract_local_api_key(headers: &HashMap<String, String>) -> Option<String> {
     if let Some(value) = headers.get("authorization") {
         let trimmed = value.trim();
@@ -140,10 +145,12 @@ fn extract_local_api_key(headers: &HashMap<String, String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+#[cfg(test)]
 fn is_local_models_request(target: &str) -> bool {
     target == "/v1/models" || target.starts_with("/v1/models?")
 }
 
+#[cfg(test)]
 fn build_local_models_response(model_ids: &[String]) -> Value {
     let data: Vec<Value> = model_ids
         .iter()
@@ -165,10 +172,12 @@ fn build_local_models_response(model_ids: &[String]) -> Value {
     })
 }
 
+#[cfg(test)]
 fn build_codex_client_models_response(model_ids: &[String]) -> Value {
     codex_protocol::build_codex_client_models_response(model_ids)
 }
 
+#[cfg(test)]
 fn lookup_client_model_context_window(windows: &HashMap<String, i64>, slug: &str) -> Option<i64> {
     let slug = slug.trim();
     if slug.is_empty() {
@@ -198,6 +207,7 @@ fn lookup_client_model_context_window(windows: &HashMap<String, i64>, slug: &str
     None
 }
 
+#[cfg(test)]
 fn model_context_windows_for_account_ids(account_ids: &[String]) -> HashMap<String, i64> {
     let mut merged = HashMap::new();
     for account_id in account_ids {
@@ -215,6 +225,7 @@ fn model_context_windows_for_account_ids(account_ids: &[String]) -> HashMap<Stri
     merged
 }
 
+#[cfg(test)]
 fn apply_explicit_context_windows_to_client_models(
     mut catalog: Value,
     windows: &HashMap<String, i64>,
@@ -242,6 +253,7 @@ fn apply_explicit_context_windows_to_client_models(
     catalog
 }
 
+#[cfg(test)]
 fn usage_number(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_u64).or_else(|| {
         value
@@ -251,10 +263,12 @@ fn usage_number(value: Option<&Value>) -> Option<u64> {
     })
 }
 
+#[cfg(test)]
 fn non_null_child<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     value.get(key).filter(|item| !item.is_null())
 }
 
+#[cfg(test)]
 fn extract_usage_capture(value: &Value) -> Option<UsageCapture> {
     let usage = non_null_child(value, "usage")
         .or_else(|| {
@@ -349,6 +363,7 @@ fn extract_usage_capture(value: &Value) -> Option<UsageCapture> {
     })
 }
 
+#[cfg(test)]
 fn extract_response_id(value: &Value) -> Option<String> {
     non_null_child(value, "id")
         .and_then(Value::as_str)
@@ -363,6 +378,7 @@ fn extract_response_id(value: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(test)]
 fn extract_response_model(value: &Value) -> Option<String> {
     for candidate in [
         value.get("model"),
@@ -380,6 +396,7 @@ fn extract_response_model(value: &Value) -> Option<String> {
     None
 }
 
+#[cfg(test)]
 fn should_treat_response_as_stream(content_type: &str, request_is_stream: bool) -> bool {
     request_is_stream
         || content_type
@@ -404,6 +421,7 @@ fn find_sse_frame_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
+#[cfg(test)]
 impl ResponseUsageCollector {
     fn new(is_stream: bool) -> Self {
         Self {
@@ -685,6 +703,7 @@ fn extract_upstream_error_message(body: &str) -> Option<String> {
     None
 }
 
+#[cfg(test)]
 fn summarize_upstream_error(status: StatusCode, body: &str) -> String {
     let detail = extract_upstream_error_message(body).unwrap_or_else(|| {
         let trimmed = body.trim();
@@ -698,6 +717,7 @@ fn summarize_upstream_error(status: StatusCode, body: &str) -> String {
     format!("{}: {}", status.as_u16(), detail)
 }
 
+#[cfg(test)]
 fn is_image_generation_capability_error(status: StatusCode, body: &str) -> bool {
     if !matches!(
         status,
@@ -711,6 +731,7 @@ fn is_image_generation_capability_error(status: StatusCode, body: &str) -> bool 
         || (lower.contains("image_generation") && lower.contains("not enabled"))
 }
 
+#[cfg(test)]
 fn friendly_image_generation_capability_error(account_email: &str) -> String {
     let account_email = account_email.trim();
     if account_email.is_empty() {
@@ -722,6 +743,7 @@ fn friendly_image_generation_capability_error(account_email: &str) -> String {
     )
 }
 
+#[cfg(test)]
 fn classify_upstream_error_category(status: StatusCode, body: &str) -> Option<&'static str> {
     if is_image_generation_capability_error(status, body) {
         return Some("image_generation_not_enabled");
@@ -746,6 +768,7 @@ fn classify_upstream_error_category(status: StatusCode, body: &str) -> Option<&'
     None
 }
 
+#[cfg(test)]
 fn should_try_next_account(status: StatusCode, body: &str) -> bool {
     if status == StatusCode::UNAUTHORIZED {
         return true;
@@ -779,6 +802,7 @@ fn should_try_next_account(status: StatusCode, body: &str) -> bool {
     ) && (quota_exhausted || model_capacity)
 }
 
+#[cfg(test)]
 fn json_response(status: u16, status_text: &str, body: &Value) -> Vec<u8> {
     let body_bytes = serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec());
     let headers = format!(
@@ -793,6 +817,7 @@ fn json_response(status: u16, status_text: &str, body: &Value) -> Vec<u8> {
     response
 }
 
+#[cfg(test)]
 fn gateway_error_code(status: u16) -> &'static str {
     match status {
         400 => "bad_request",
@@ -807,6 +832,7 @@ fn gateway_error_code(status: u16) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn gateway_proxy_diagnostics_message(diagnostics: &UpstreamProxyDiagnostics) -> String {
     match diagnostics.proxy_source {
         UpstreamProxySource::ApiService => match diagnostics.proxy_url.as_deref() {
@@ -834,6 +860,7 @@ fn gateway_proxy_diagnostics_message(diagnostics: &UpstreamProxyDiagnostics) -> 
     }
 }
 
+#[cfg(test)]
 fn upstream_proxy_source_code(source: UpstreamProxySource) -> &'static str {
     match source {
         UpstreamProxySource::ApiService => "api_service",
@@ -843,6 +870,7 @@ fn upstream_proxy_source_code(source: UpstreamProxySource) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn gateway_user_visible_error_message(
     status: u16,
     message: &str,
@@ -861,6 +889,7 @@ fn gateway_user_visible_error_message(
     )
 }
 
+#[cfg(test)]
 fn gateway_error_body(
     status: u16,
     message: &str,
@@ -904,6 +933,7 @@ fn gateway_error_body(
     Value::Object(body)
 }
 
+#[cfg(test)]
 fn options_response() -> Vec<u8> {
     let headers = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 0\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: {}\r\n\r\n",
@@ -912,6 +942,7 @@ fn options_response() -> Vec<u8> {
     headers.into_bytes()
 }
 
+#[cfg(test)]
 fn log_field_or_dash(value: Option<&str>) -> &str {
     value
         .map(str::trim)
@@ -919,10 +950,12 @@ fn log_field_or_dash(value: Option<&str>) -> &str {
         .unwrap_or("-")
 }
 
+#[cfg(test)]
 fn escape_failure_detail(detail: &str) -> String {
     detail.replace('\r', "\\r").replace('\n', "\\n")
 }
 
+#[cfg(test)]
 fn log_codex_api_failure(
     addr: Option<&std::net::SocketAddr>,
     request: Option<&ParsedRequest>,
@@ -957,6 +990,7 @@ fn log_codex_api_failure(
     ));
 }
 
+#[cfg(test)]
 async fn write_json_error_response(
     stream: &mut TcpStream,
     addr: Option<&std::net::SocketAddr>,
@@ -989,6 +1023,7 @@ async fn write_json_error_response(
         .map_err(|e| format!("写入错误响应失败: {}", e))
 }
 
+#[cfg(test)]
 async fn write_http_response(
     stream: &mut TcpStream,
     status: u16,
@@ -1015,6 +1050,7 @@ async fn write_http_response(
     Ok(())
 }
 
+#[cfg(test)]
 async fn write_chunked_response_headers(
     stream: &mut TcpStream,
     status: StatusCode,
@@ -1046,6 +1082,7 @@ async fn write_chunked_response_headers(
         .map_err(|e| format!("写入响应头失败: {}", e))
 }
 
+#[cfg(test)]
 async fn write_chunked_response_chunk(stream: &mut TcpStream, chunk: &[u8]) -> Result<(), String> {
     if chunk.is_empty() {
         return Ok(());
@@ -1066,6 +1103,7 @@ async fn write_chunked_response_chunk(stream: &mut TcpStream, chunk: &[u8]) -> R
         .map_err(|e| format!("写入响应分块结束失败: {}", e))
 }
 
+#[cfg(test)]
 async fn finish_chunked_response(stream: &mut TcpStream) -> Result<(), String> {
     stream
         .write_all(b"0\r\n\r\n")
@@ -1214,6 +1252,7 @@ fn parse_responses_payload_from_upstream(body_bytes: &[u8]) -> Result<Value, Str
     Ok(Value::Object(root))
 }
 
+#[cfg(test)]
 fn mime_type_from_output_format(output_format: &str) -> String {
     let output_format = output_format.trim();
     if output_format.contains('/') {
@@ -1226,6 +1265,7 @@ fn mime_type_from_output_format(output_format: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn extract_images_from_responses_payload(
     response_body: &Value,
 ) -> (
@@ -1305,6 +1345,7 @@ fn extract_images_from_responses_payload(
     (results, created, usage, first_meta)
 }
 
+#[cfg(test)]
 fn build_images_api_payload(response_body: &Value, response_format: &str) -> Result<Value, String> {
     let (results, created, usage, first_meta) =
         extract_images_from_responses_payload(response_body);
@@ -1366,6 +1407,7 @@ fn build_images_api_payload(response_body: &Value, response_format: &str) -> Res
     Ok(Value::Object(out))
 }
 
+#[cfg(test)]
 fn push_named_sse_payload(stream_body: &mut String, event_name: &str, payload: Value) {
     let event_name = event_name.trim();
     if !event_name.is_empty() {
@@ -1377,6 +1419,7 @@ fn push_named_sse_payload(stream_body: &mut String, event_name: &str, payload: V
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct ImageStreamTransformer {
     response_format: String,
     stream_prefix: String,
@@ -1384,6 +1427,7 @@ struct ImageStreamTransformer {
     response_capture: ResponseCapture,
 }
 
+#[cfg(test)]
 impl ImageStreamTransformer {
     fn new(response_format: &str, stream_prefix: &str) -> Self {
         Self {
@@ -1565,6 +1609,7 @@ impl ImageStreamTransformer {
     }
 }
 
+#[cfg(test)]
 async fn write_chat_completions_compatible_response(
     stream: &mut TcpStream,
     upstream: reqwest::Response,
@@ -1723,6 +1768,7 @@ async fn write_chat_completions_compatible_response(
     Ok(response_capture)
 }
 
+#[cfg(test)]
 async fn write_images_compatible_response(
     stream: &mut TcpStream,
     upstream: reqwest::Response,
@@ -1879,6 +1925,7 @@ async fn write_images_compatible_response(
     Ok(response_capture)
 }
 
+#[cfg(test)]
 async fn write_gateway_response(
     stream: &mut TcpStream,
     upstream: reqwest::Response,
@@ -1940,6 +1987,7 @@ async fn write_gateway_response(
     }
 }
 
+#[cfg(test)]
 async fn write_upstream_response(
     stream: &mut TcpStream,
     upstream: reqwest::Response,
@@ -2061,6 +2109,7 @@ async fn write_upstream_response(
     Ok(response_capture)
 }
 
+#[cfg(test)]
 async fn force_refresh_gateway_account(
     account_id: &str,
     observed_generation: u64,
@@ -2115,6 +2164,7 @@ fn backoff_retry_delay(retry_attempt: usize, base_delay_ms: u64, max_delay_ms: u
     }
 }
 
+#[cfg(test)]
 fn should_retry_single_account_upstream_status(status: StatusCode) -> bool {
     matches!(
         status,
@@ -2337,140 +2387,4 @@ async fn send_upstream_request_with_authorization_url(
     }
 
     Err("请求 Codex 上游失败: 未知错误".to_string())
-}
-
-const MAX_OPENAI_RESPONSES_REJECTED_FIELD_RETRIES: usize = 6;
-
-struct OpenAIResponsesRejectedFieldRetryState {
-    attempts: usize,
-    seen_body_hashes: HashSet<[u8; 32]>,
-}
-
-impl OpenAIResponsesRejectedFieldRetryState {
-    fn new(initial_body: &[u8]) -> Self {
-        let mut state = Self {
-            attempts: 0,
-            seen_body_hashes: HashSet::with_capacity(
-                MAX_OPENAI_RESPONSES_REJECTED_FIELD_RETRIES + 1,
-            ),
-        };
-        state.remember(initial_body);
-        state
-    }
-
-    fn allow(&mut self, next_body: &[u8]) -> bool {
-        if next_body.is_empty() || self.attempts >= MAX_OPENAI_RESPONSES_REJECTED_FIELD_RETRIES {
-            return false;
-        }
-        let body_hash: [u8; 32] = Sha256::digest(next_body).into();
-        if !self.seen_body_hashes.insert(body_hash) {
-            return false;
-        }
-        self.attempts += 1;
-        true
-    }
-
-    fn remember(&mut self, body: &[u8]) {
-        if !body.is_empty() {
-            self.seen_body_hashes.insert(Sha256::digest(body).into());
-        }
-    }
-}
-
-fn normalize_openai_responses_rejected_field_retry_body(
-    status: StatusCode,
-    body: &[u8],
-    response_body: &[u8],
-) -> Result<Option<(Vec<u8>, &'static str)>, String> {
-    if status != StatusCode::BAD_REQUEST || body.is_empty() || response_body.is_empty() {
-        return Ok(None);
-    }
-    let response: Value = match serde_json::from_slice(response_body) {
-        Ok(response) => response,
-        Err(_) => return Ok(None),
-    };
-    let code = response
-        .pointer("/error/code")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    let message = response
-        .pointer("/error/message")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if code != "unknown_parameter"
-        && code != "unsupported_parameter"
-        && !message.contains("unknown parameter")
-        && !message.contains("unsupported parameter")
-    {
-        return Ok(None);
-    }
-    let mut param = response
-        .pointer("/error/param")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if param.is_empty() {
-        let pattern = regex::Regex::new(
-            r#"(?i)(?:unknown|unsupported)[ _-]+parameter\s*(?::|=|is)?\s*[\"']?(max_output_tokens|input\[\d+\]\.namespace)(?:[\"']|\b)"#,
-        )
-        .map_err(|error| format!("编译 Responses 拒绝字段匹配规则失败: {error}"))?;
-        param = pattern
-            .captures(&message)
-            .and_then(|captures| captures.get(1))
-            .map(|value| value.as_str().trim().to_ascii_lowercase())
-            .unwrap_or_default();
-    }
-
-    let mut request: Value = serde_json::from_slice(body)
-        .map_err(|error| format!("解析 Responses 拒绝字段重试请求失败: {error}"))?;
-    if param == "max_output_tokens" {
-        let Some(object) = request.as_object_mut() else {
-            return Ok(None);
-        };
-        if object.remove("max_output_tokens").is_none() {
-            return Ok(None);
-        }
-        return serde_json::to_vec(&request)
-            .map(|body| Some((body, "max_output_tokens parameter rejection")))
-            .map_err(|error| format!("序列化 Responses 拒绝字段重试请求失败: {error}"));
-    }
-
-    let namespace_pattern = regex::Regex::new(r"(?i)^input\[(\d+)\]\.namespace$")
-        .map_err(|error| format!("编译 Responses namespace 匹配规则失败: {error}"))?;
-    let Some(index) = namespace_pattern
-        .captures(&param)
-        .and_then(|captures| captures.get(1))
-        .and_then(|value| value.as_str().parse::<usize>().ok())
-    else {
-        return Ok(None);
-    };
-    let Some(item) = request
-        .get_mut("input")
-        .and_then(Value::as_array_mut)
-        .and_then(|input| input.get_mut(index))
-        .and_then(Value::as_object_mut)
-    else {
-        return Ok(None);
-    };
-    let item_type = item
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if !matches!(
-        item_type.as_str(),
-        "function_call" | "tool_call" | "custom_tool_call" | "mcp_tool_call"
-    ) || item.remove("namespace").is_none()
-    {
-        return Ok(None);
-    }
-    serde_json::to_vec(&request)
-        .map(|body| Some((body, "indexed namespace parameter rejection")))
-        .map_err(|error| format!("序列化 Responses namespace 重试请求失败: {error}"))
 }
