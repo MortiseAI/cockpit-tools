@@ -8,13 +8,14 @@ export function CodexServiceTierBadge(props: {
 }) {
   const { t } = useTranslation();
   const display = resolveServiceTierDisplay(props);
+  const isFast = display.kind === 'fast' || display.tier === 'ultrafast';
   const labels = {
     fast: 'Fast',
     standard: t('codex.apiService.logs.speedStandard', 'Standard'),
     flex: 'Flex',
     auto: t('codex.apiService.logs.speedAuto', 'Auto'),
     unknown: t('codex.apiService.logs.speedUnknown', 'Speed unknown'),
-    other: display.tier,
+    other: display.tier === 'ultrafast' ? t('codex.speed.ultrafast', '超高速') : display.tier,
   };
   const label = labels[display.kind];
   const text = display.kind === 'unknown'
@@ -31,11 +32,11 @@ export function CodexServiceTierBadge(props: {
 
   return (
     <span
-      className={`codex-api-service-pill ${display.kind === 'fast' ? 'speed-fast' : 'muted'}`}
+      className={`codex-api-service-pill ${isFast ? 'speed-fast' : 'muted'}`}
       title={title}
       aria-label={`${text}. ${title}`}
     >
-      {display.kind === 'fast' && <Zap size={12} aria-hidden="true" />}
+      {isFast && <Zap size={12} aria-hidden="true" />}
       {text}
     </span>
   );

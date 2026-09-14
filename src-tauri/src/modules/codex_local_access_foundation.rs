@@ -25,6 +25,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessTestResult, CodexLocalAccessTimeoutPreset, CodexLocalAccessTimeouts,
     CodexLocalAccessUsageEvent, CodexLocalAccessUsageEventPage, CodexLocalAccessUsageStats,
     CodexLocalAccessUsageTrendPoint,
+    CodexInstanceGatewayView,
     CodexTokenBreakdown,
 };
 use crate::models::{CodexInstanceApiRoute, CodexInstanceModelRouting};
@@ -65,7 +66,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(test)]
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use tokio::process::{Child, Command as TokioCommand};
 use tokio::sync::{oneshot, watch, Mutex as TokioMutex, Notify};
 use tokio::time::{timeout, Duration};
@@ -235,7 +237,6 @@ const DEFAULT_CODEX_ORIGINATOR: &str = "codex-tui";
 const CODEX_RESPONSES_WEBSOCKET_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 #[cfg(test)]
 const CODEX_RESPONSES_LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
-#[cfg(test)]
 const MAX_GPT_REASONING_SIGNATURE_LEN: usize = 32 * 1024 * 1024;
 #[cfg(test)]
 const CODEX_WEBSOCKET_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);

@@ -789,6 +789,22 @@ func (t *requestUsageTracker) recordSelectedAccount(requestID string, account *a
 }
 
 func normalizedUsageServiceTier(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "priority", "fast":
+		return "priority"
+	case "ultrafast":
+		return "ultrafast"
+	case "flex":
+		return "flex"
+	case "standard", "default":
+		return "standard"
+	default:
+		return ""
+	}
+}
+
+// Preserve request and response evidence separately from display mode names.
+func normalizedRecordedUsageServiceTier(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	switch value {
 	case "fast":

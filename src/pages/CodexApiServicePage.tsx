@@ -716,6 +716,7 @@ export function useCodexApiServicePageController() {
     () => readStoredAddressKind(),
   );
   const [busy, setBusy] = useState(false);
+  const [routingSaving, setRoutingSaving] = useState(false);
   const [activating, setActivating] = useState(false);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testDialogRunning, setTestDialogRunning] = useState(false);
@@ -2996,25 +2997,31 @@ export function useCodexApiServicePageController() {
       );
       return;
     }
-    await runAction(
-      async () => {
-        const next =
-          await codexLocalAccessService.updateCodexLocalAccessRoutingOptions({
-            sessionAffinity: sessionAffinityDraft,
-            sessionAffinityTtlMs: sessionAffinityTtlSeconds * 1000,
-            responsesWebsocketsEnabled: responsesWebsocketsEnabledDraft,
-            maxRetryCredentials,
-            maxRetryIntervalMs: maxRetryIntervalSeconds * 1000,
-            disableCooling: disableCoolingDraft,
-            immediateSseResponse: immediateSseResponseDraft,
-            maxConcurrentImageRequests,
-            maxAccountConcurrency,
-            accountConcurrencyWaitMs: accountConcurrencyWaitSeconds * 1000,
-          });
-        setState(next);
-      },
-      t("codex.apiService.routing.optionsSaved", "调度选项已保存"),
-    );
+    if (routingSaving) return;
+    setRoutingSaving(true);
+    try {
+      await runAction(
+        async () => {
+          const next =
+            await codexLocalAccessService.updateCodexLocalAccessRoutingOptions({
+              sessionAffinity: sessionAffinityDraft,
+              sessionAffinityTtlMs: sessionAffinityTtlSeconds * 1000,
+              responsesWebsocketsEnabled: responsesWebsocketsEnabledDraft,
+              maxRetryCredentials,
+              maxRetryIntervalMs: maxRetryIntervalSeconds * 1000,
+              disableCooling: disableCoolingDraft,
+              immediateSseResponse: immediateSseResponseDraft,
+              maxConcurrentImageRequests,
+              maxAccountConcurrency,
+              accountConcurrencyWaitMs: accountConcurrencyWaitSeconds * 1000,
+            });
+          setState(next);
+        },
+        t("codex.apiService.routing.optionsSaved", "调度选项已保存"),
+      );
+    } finally {
+      setRoutingSaving(false);
+    }
   };
 
   const updateTimeoutDraft = (
@@ -3758,6 +3765,7 @@ export function useCodexApiServicePageController() {
     resolveClientInstanceLabel,
     responsesWebsocketsEnabledDraft,
     routingOptions,
+    routingSaving,
     routingStrategy,
     selectedModelId,
     selectedStatsRangeTitle,

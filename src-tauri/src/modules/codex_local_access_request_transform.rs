@@ -1086,9 +1086,11 @@ fn build_responses_body_from_chat_completions(
 }
 
 fn normalize_proxy_service_tier(value: &str) -> Option<&'static str> {
-    // priority/fast -> priority, flex -> flex, standard/default -> standard.
+    // priority/fast -> priority, ultrafast -> ultrafast, flex -> flex,
+    // standard/default -> standard.
     match value.trim().to_ascii_lowercase().as_str() {
         "priority" | "fast" => Some("priority"),
+        "ultrafast" => Some("ultrafast"),
         "flex" => Some("flex"),
         "standard" | "default" => Some("standard"),
         _ => None,
@@ -1111,6 +1113,7 @@ fn normalize_recorded_service_tier(value: &str) -> Option<&str> {
 fn normalize_upstream_inject_service_tier(value: &str) -> Option<&'static str> {
     match normalize_proxy_service_tier(value) {
         Some("priority") => Some("priority"),
+        Some("ultrafast") => Some("ultrafast"),
         Some("flex") => Some("flex"),
         _ => None,
     }

@@ -63,6 +63,21 @@ type modelExclusionSelector struct {
 	fallback coreauth.Selector
 }
 
+type authSelectionResultListener interface {
+	OnResult(coreauth.Result)
+}
+
+// Wrapper selectors must forward result notifications to the affinity selector.
+// The manager only inspects the outermost selector for OnResult support.
+func forwardAuthSelectionResult(selector coreauth.Selector, result coreauth.Result) {
+	if selector == nil {
+		return
+	}
+	if listener, ok := selector.(authSelectionResultListener); ok && listener != nil {
+		listener.OnResult(result)
+	}
+}
+
 func (s *imageRequestSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, error) {
 	requestKind, _ := ctx.Value(requestKindContextKey).(string)
 	if isImageRequestKind(requestKind) && s.imageFallback != nil {
@@ -78,6 +93,14 @@ func (s *imageRequestSelector) Stop() {
 	if stoppable, ok := s.fallback.(coreauth.StoppableSelector); ok {
 		stoppable.Stop()
 	}
+}
+
+func (s *imageRequestSelector) OnResult(result coreauth.Result) {
+	if s == nil {
+		return
+	}
+	forwardAuthSelectionResult(s.imageFallback, result)
+	forwardAuthSelectionResult(s.fallback, result)
 }
 
 func (s *imageRequestSelector) ReportAuthSelectionFailure(ctx context.Context, provider, model string, candidates []*coreauth.Auth, err error) error {
@@ -119,6 +142,13 @@ func (s *modelExclusionSelector) Stop() {
 	}
 }
 
+func (s *modelExclusionSelector) OnResult(result coreauth.Result) {
+	if s == nil {
+		return
+	}
+	forwardAuthSelectionResult(s.fallback, result)
+}
+
 func (s *modelExclusionSelector) ReportAuthSelectionFailure(ctx context.Context, provider, model string, candidates []*coreauth.Auth, err error) error {
 	if reporter, ok := s.fallback.(coreauth.AuthSelectionFailureReporter); ok {
 		return reporter.ReportAuthSelectionFailure(ctx, provider, model, candidates, err)
@@ -139,6 +169,13 @@ func (s *recordingSelector) Stop() {
 	if stoppable, ok := s.inner.(coreauth.StoppableSelector); ok {
 		stoppable.Stop()
 	}
+}
+
+func (s *recordingSelector) OnResult(result coreauth.Result) {
+	if s == nil {
+		return
+	}
+	forwardAuthSelectionResult(s.inner, result)
 }
 
 func (s *recordingSelector) ReportAuthSelectionFailure(ctx context.Context, provider, model string, candidates []*coreauth.Auth, err error) error {
@@ -321,6 +358,13 @@ func (s *quotaReserveSelector) Stop() {
 	}
 }
 
+func (s *quotaReserveSelector) OnResult(result coreauth.Result) {
+	if s == nil {
+		return
+	}
+	forwardAuthSelectionResult(s.fallback, result)
+}
+
 func (s *quotaReserveSelector) ReportAuthSelectionFailure(ctx context.Context, provider, model string, candidates []*coreauth.Auth, err error) error {
 	if reporter, ok := s.fallback.(coreauth.AuthSelectionFailureReporter); ok {
 		return reporter.ReportAuthSelectionFailure(ctx, provider, model, candidates, err)
@@ -394,6 +438,13 @@ func (s *backupAccountSelector) Stop() {
 	if stoppable, ok := s.fallback.(coreauth.StoppableSelector); ok {
 		stoppable.Stop()
 	}
+}
+
+func (s *backupAccountSelector) OnResult(result coreauth.Result) {
+	if s == nil {
+		return
+	}
+	forwardAuthSelectionResult(s.fallback, result)
 }
 
 func (s *backupAccountSelector) ReportAuthSelectionFailure(ctx context.Context, provider, model string, candidates []*coreauth.Auth, err error) error {
@@ -1352,6 +1403,36 @@ func (s *cockpitSelector) rotatedIndex(account *accountSpec, start int) int {
 type usagePlugin struct {
 	manifest *manifest
 	tracker  *requestUsageTracker
+	// defaultServiceTier is the tier Cockpit injects when the client sends no
+	// service_tier (API 服务开启快速模式时由 payload.default 注入 priority)。
+	defaultServiceTier string
+}
+
+// usageServiceTier 将响应、请求及配置合并为展示档位，依次回退。
+// 请求与响应的独立日志字段使用 normalizedRecordedUsageServiceTier 保留原始语义；
+// 补全请求默认档位时，调用方必须先排除响应档位。
+func usageServiceTier(record coreusage.Record, fallback string) string {
+	if tier := normalizedUsageServiceTier(record.ResponseServiceTier); tier != "" {
+		return tier
+	}
+	if tier := normalizedRequestedUsageServiceTier(record.ServiceTier); tier != "" {
+		return tier
+	}
+	if tier := normalizedRequestedUsageServiceTier(record.RequestServiceTier); tier != "" {
+		return tier
+	}
+	return normalizedUsageServiceTier(fallback)
+}
+
+// normalizedRequestedUsageServiceTier 归一化客户端请求的档位。空值、"auto" 和
+// "default" 都表示客户端没有指定档位，此时实际上游使用的是注入的默认档位。
+func normalizedRequestedUsageServiceTier(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto", "default":
+		return ""
+	default:
+		return normalizedUsageServiceTier(value)
+	}
 }
 
 func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) {
@@ -1389,6 +1470,19 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 	serviceTier := record.UpstreamServiceTier
 	if strings.TrimSpace(serviceTier) == "" {
 		serviceTier = record.ServiceTier
+		if strings.TrimSpace(serviceTier) == "" {
+			serviceTier = record.RequestServiceTier
+		}
+		// Older reporters may omit the outgoing tier. Retain the configured
+		// default fallback without substituting a response tier for the request.
+		switch strings.ToLower(strings.TrimSpace(serviceTier)) {
+		case "", "auto", "default":
+			requestRecord := record
+			requestRecord.ResponseServiceTier = ""
+			if tier := usageServiceTier(requestRecord, p.defaultServiceTier); tier != "" {
+				serviceTier = tier
+			}
+		}
 	}
 	payload := usagePayload{
 		Type:                "usage",
@@ -1403,8 +1497,8 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 		APIKeyLabel:         stringFromAPIKey(spec, "label"),
 		ClientInstanceID:    clientInstanceIDFromContext(ctx),
 		RequestKind:         requestKind,
-		ServiceTier:         normalizedUsageServiceTier(serviceTier),
-		ResponseServiceTier: normalizedUsageServiceTier(record.ResponseServiceTier),
+		ServiceTier:         normalizedRecordedUsageServiceTier(serviceTier),
+		ResponseServiceTier: normalizedRecordedUsageServiceTier(record.ResponseServiceTier),
 		ReasoningEffort:     strings.TrimSpace(record.ReasoningEffort),
 		Success:             success,
 		Status:              status,
@@ -1719,6 +1813,13 @@ func (s *cockpitSessionAffinitySelector) Pick(ctx context.Context, provider, mod
 		opts.Metadata = metadata
 	}
 	return s.inner.Pick(ctx, provider, model, opts, auths)
+}
+
+func (s *cockpitSessionAffinitySelector) OnResult(result coreauth.Result) {
+	if s == nil {
+		return
+	}
+	forwardAuthSelectionResult(s.inner, result)
 }
 
 func (s *cockpitSessionAffinitySelector) ReportAuthSelectionFailure(ctx context.Context, provider, model string, candidates []*coreauth.Auth, err error) error {

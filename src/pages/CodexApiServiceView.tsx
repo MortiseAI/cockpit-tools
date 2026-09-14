@@ -200,6 +200,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     resolveClientInstanceLabel,
     responsesWebsocketsEnabledDraft,
     routingOptions,
+    routingSaving,
     routingStrategy,
     selectedModelId,
     selectedStatsRangeTitle,
@@ -1775,7 +1776,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => void handleSaveRoutingOptions()}
-                  disabled={busy || !collection}
+                  disabled={busy || routingSaving || !collection}
                 >
                   <Check size={14} />
                   {t("codex.apiService.routing.saveOptions", "保存选项")}
@@ -1805,7 +1806,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     onChange={(event) =>
                       setSessionAffinityDraft(event.target.checked)
                     }
-                    disabled={busy || !collection}
+                    disabled={routingSaving || !collection}
                   />
                 </label>
                 <label>
@@ -1823,7 +1824,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     onChange={(event) =>
                       setSessionAffinityTtlDraft(event.target.value)
                     }
-                    disabled={busy || !collection}
+                    disabled={routingSaving || !collection}
                   />
                 </label>
                 <label>

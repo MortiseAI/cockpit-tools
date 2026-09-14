@@ -1349,6 +1349,7 @@ export function InstancesManager<TAccount extends AccountLike>({
     let nextExperimentalModels = formExperimentalModels;
     let nextExperimentalModelCatalogEnabled =
       formExperimentalModelCatalogEnabled;
+    let routingEnabledForSave = formModelRoutingEnabled;
     if (isCodexApp && formModelRoutingEnabled) {
       if (
         editing &&
@@ -1382,15 +1383,19 @@ export function InstancesManager<TAccount extends AccountLike>({
         isApiServiceBindId(formBindAccountId) ||
         Boolean(parseProviderGatewayBindAccountId(formBindAccountId))
       ) {
-        setFormError(
-          t(
+        // 绑定账号不是可直接登录的 OAuth 订阅账号：路由自动关闭（渠道配置保留），
+        // 不能用路由拦住这次保存或后续启动。
+        setMessage({
+          text: t(
             "instances.form.modelRouting.oauthRequired",
             "混合模型路由需要绑定一个直接登录的 OAuth 订阅账号。",
           ),
-        );
-        setFormErrorTick((prev) => prev + 1);
-        return;
+        });
+        setFormModelRoutingEnabled(false);
+        routingEnabledForSave = false;
       }
+      if (routingEnabledForSave) {
+      // 仍然启用路由时才校验路由配置；绑定账号不支持路由时只保存关闭状态。
       if (formModelRoutes.length === 0) {
         setFormError(
           t(
@@ -1467,7 +1472,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         accounts,
         true,
       );
-      nextExperimentalModelCatalogEnabled = true;
+      }
     } else if (editing && isCodexApp && editing.modelRouting?.enabled) {
       nextModelRouting = buildCodexModelRoutingValue(false, formModelRoutes);
       nextExperimentalModels = syncExperimentalModelsWithRouting(
@@ -1477,7 +1482,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         false,
       );
     }
-    if (editing && isCodexApp && !formModelRoutingEnabled) {
+    if (editing && isCodexApp && !routingEnabledForSave) {
       nextModelRouting = buildCodexModelRoutingValue(false, formModelRoutes);
     }
     const nextCatalog = resolveRoutingCatalog(
@@ -2519,6 +2524,22 @@ export function InstancesManager<TAccount extends AccountLike>({
 
   const handleFormAccountChange = (nextId: string | null) => {
     setFormBindAccountId(resolveBindAccountValue(nextId) ?? "");
+    if (!isCodexApp || !formModelRoutingEnabled) return;
+    // 混合模型路由只在绑定可直接登录的 OAuth 订阅账号时生效。
+    // 换成普通账号 / API Key 账号 / API 服务时自动关闭路由（渠道配置保留），
+    // 不能因为路由拦住普通的账号切换与实例启动。
+    const nextAccount = nextId
+      ? accounts.find((item) => item.id === nextId) ?? null
+      : null;
+    if (!nextAccount || nextAccount.auth_mode === "apikey") {
+      setFormModelRoutingEnabled(false);
+      setMessage({
+        text: t(
+          "instances.form.modelRouting.oauthRequired",
+          "混合模型路由需要绑定一个直接登录的 OAuth 订阅账号。",
+        ),
+      });
+    }
   };
 
   const handleInitGuideStart = async () => {
@@ -3541,7 +3562,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                       setFormModelRoutingEnabled(enabled);
                       const catalog = resolveRoutingCatalog(
                         syncExperimentalModelsWithRouting(formExperimentalModels, formModelRoutes, accounts, enabled),
-                        enabled || formExperimentalModelCatalogEnabled,
+                        formExperimentalModelCatalogEnabled,
                         formExperimentalDefaultModelId,
                       );
                       setFormExperimentalModelCatalogEnabled(catalog.enabled);
@@ -3644,6 +3665,14 @@ export function InstancesManager<TAccount extends AccountLike>({
                               ? t("codex.modelManagement.enabledDescription")
                               : t("codex.modelManagement.disabledDescription")}
                           </p>
+                          {formModelRoutingEnabled && (
+                            <p className="form-hint">
+                              {t(
+                                "codex.modelManagement.routingManagedHint",
+                                "混合模型路由只在实例运行时临时使用这份模型目录，停止后自动恢复；它不会改动这里的开关状态。",
+                              )}
+                            </p>
+                          )}
                           {formExperimentalModelUnavailableMessage && (
                             <div className="form-error instance-codex-experimental-model__error">
                               {formExperimentalModelUnavailableMessage}
@@ -3694,7 +3723,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                           <span className="instance-codex-experimental-model__switch-track" />
                         </label>
                       </div>
-                      {formExperimentalModelCatalogEnabled && (
+                      {(formExperimentalModelCatalogEnabled || formModelRoutingEnabled) && (
                         <CodexExperimentalModelEditor
                           models={formExperimentalModels}
                           defaultModelId={formExperimentalDefaultModelId}
