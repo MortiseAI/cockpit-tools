@@ -784,6 +784,10 @@ export function useCodexApiServicePageController() {
   const [immediateSseResponseDraft, setImmediateSseResponseDraft] = useState(false);
   const [maxConcurrentImageRequestsDraft, setMaxConcurrentImageRequestsDraft] =
     useState("1");
+  const [maxAccountConcurrencyDraft, setMaxAccountConcurrencyDraft] =
+    useState("0");
+  const [accountConcurrencyWaitDraft, setAccountConcurrencyWaitDraft] =
+    useState("120");
   const [requestLogPage, setRequestLogPage] = useState(1);
   const [requestLogPageSize, setRequestLogPageSize] = useState(() =>
     readStoredRequestLogPageSize(),
@@ -1537,6 +1541,12 @@ export function useCodexApiServicePageController() {
     setMaxConcurrentImageRequestsDraft(
       String(collection?.maxConcurrentImageRequests ?? 1),
     );
+    setMaxAccountConcurrencyDraft(
+      String(collection?.maxAccountConcurrency ?? 0),
+    );
+    setAccountConcurrencyWaitDraft(
+      formatSeconds(collection?.accountConcurrencyWaitMs ?? 120 * 1000),
+    );
     setTimeoutDrafts(timeoutDraftsFromValue(collection?.timeouts));
     setSelectedTimeoutPresetId(
       collection?.activeTimeoutPresetId || "long_wait",
@@ -1553,6 +1563,8 @@ export function useCodexApiServicePageController() {
     collection?.disableCooling,
     collection?.immediateSseResponse,
     collection?.maxConcurrentImageRequests,
+    collection?.maxAccountConcurrency,
+    collection?.accountConcurrencyWaitMs,
     collection?.timeouts,
     collection?.activeTimeoutPresetId,
   ]);
@@ -2954,6 +2966,36 @@ export function useCodexApiServicePageController() {
       );
       return;
     }
+    const maxAccountConcurrency = parseIntegerDraft(
+      maxAccountConcurrencyDraft,
+      0,
+      64,
+    );
+    if (maxAccountConcurrency === null) {
+      setError(
+        t("codex.apiService.validation.numberRange", {
+          min: 0,
+          max: 64,
+          defaultValue: "Please enter a number between {{min}} and {{max}}",
+        }),
+      );
+      return;
+    }
+    const accountConcurrencyWaitSeconds = parseIntegerDraft(
+      accountConcurrencyWaitDraft,
+      0,
+      1800,
+    );
+    if (accountConcurrencyWaitSeconds === null) {
+      setError(
+        t("codex.apiService.validation.numberRange", {
+          min: 0,
+          max: 1800,
+          defaultValue: "Please enter a number between {{min}} and {{max}}",
+        }),
+      );
+      return;
+    }
     await runAction(
       async () => {
         const next =
@@ -2966,6 +3008,8 @@ export function useCodexApiServicePageController() {
             disableCooling: disableCoolingDraft,
             immediateSseResponse: immediateSseResponseDraft,
             maxConcurrentImageRequests,
+            maxAccountConcurrency,
+            accountConcurrencyWaitMs: accountConcurrencyWaitSeconds * 1000,
           });
         setState(next);
       },
@@ -3549,6 +3593,7 @@ export function useCodexApiServicePageController() {
   return {
     accessScope,
     accessScopeOptions,
+    accountConcurrencyWaitDraft,
     accountDisplayNames,
     accountModelMappingDrafts,
     accountModelMappingError,
@@ -3659,6 +3704,7 @@ export function useCodexApiServicePageController() {
     mappingDraftsFromAccount,
     mappingMemberAccounts,
     maskAccountText,
+    maxAccountConcurrencyDraft,
     maxConcurrentImageRequestsDraft,
     maxRetryCredentialsDraft,
     maxRetryIntervalDraft,
@@ -3728,12 +3774,14 @@ export function useCodexApiServicePageController() {
     setAddressKind,
     setApiKeyDrafts,
     setApiKeyPolicyDrafts,
+    setAccountConcurrencyWaitDraft,
     setDisableCoolingDraft,
     setError,
     setExcludedModelsText,
     setHealthModalOpen,
     setImmediateSseResponseDraft,
     setKeyVisible,
+    setMaxAccountConcurrencyDraft,
     setMaxConcurrentImageRequestsDraft,
     setMaxRetryCredentialsDraft,
     setMaxRetryIntervalDraft,

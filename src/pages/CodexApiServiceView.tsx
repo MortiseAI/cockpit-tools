@@ -35,6 +35,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
   const {
     accessScope,
     accessScopeOptions,
+    accountConcurrencyWaitDraft,
     accountDisplayNames,
     accountModelMappingDrafts,
     accountModelMappingError,
@@ -145,6 +146,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     mappingDraftsFromAccount,
     mappingMemberAccounts,
     maskAccountText,
+    maxAccountConcurrencyDraft,
     maxConcurrentImageRequestsDraft,
     maxRetryCredentialsDraft,
     maxRetryIntervalDraft,
@@ -214,12 +216,14 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     setAddressKind,
     setApiKeyDrafts,
     setApiKeyPolicyDrafts,
+    setAccountConcurrencyWaitDraft,
     setDisableCoolingDraft,
     setError,
     setExcludedModelsText,
     setHealthModalOpen,
     setImmediateSseResponseDraft,
     setKeyVisible,
+    setMaxAccountConcurrencyDraft,
     setMaxConcurrentImageRequestsDraft,
     setMaxRetryCredentialsDraft,
     setMaxRetryIntervalDraft,
@@ -289,7 +293,9 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
           initialApiServiceLaunchMode={collection?.launchMode}
           mode="apiService"
           onClose={() => setLaunchPreviewOpen(false)}
-          onExecute={handleActivateService}
+          onExecute={(launchAfterSwitch, launchOptions) =>
+            handleActivateService(launchAfterSwitch, launchOptions?.apiServiceLaunchMode)
+          }
         />
       )}
       <div className="page-top-strip">
@@ -1912,6 +1918,42 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     value={maxConcurrentImageRequestsDraft}
                     onChange={(event) =>
                       setMaxConcurrentImageRequestsDraft(event.target.value)
+                    }
+                    disabled={busy || !collection}
+                  />
+                </label>
+                <label>
+                  <span>
+                    {t(
+                      "codex.apiService.routing.maxAccountConcurrency",
+                      "Account concurrency",
+                    )}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={64}
+                    value={maxAccountConcurrencyDraft}
+                    onChange={(event) =>
+                      setMaxAccountConcurrencyDraft(event.target.value)
+                    }
+                    disabled={busy || !collection}
+                  />
+                </label>
+                <label>
+                  <span>
+                    {t(
+                      "codex.apiService.routing.accountConcurrencyWait",
+                      "Concurrency wait (s)",
+                    )}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1800}
+                    value={accountConcurrencyWaitDraft}
+                    onChange={(event) =>
+                      setAccountConcurrencyWaitDraft(event.target.value)
                     }
                     disabled={busy || !collection}
                   />
@@ -4046,6 +4088,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               disableCooling: collection.disableCooling,
               immediateSseResponse: collection.immediateSseResponse,
               maxConcurrentImageRequests: collection.maxConcurrentImageRequests,
+              maxAccountConcurrency: collection.maxAccountConcurrency,
+              accountConcurrencyWaitMs: collection.accountConcurrencyWaitMs,
             });
             setState(next);
           }
