@@ -42,8 +42,12 @@ use futures_util::{stream, StreamExt};
 #[cfg(test)]
 use rand::seq::SliceRandom;
 use rand::{distributions::Alphanumeric, Rng};
-use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
-use reqwest::{Client, Method, Proxy, StatusCode, Url};
+use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+#[cfg(test)]
+use reqwest::header::USER_AGENT;
+use reqwest::{Client, Proxy, Url};
+#[cfg(test)]
+use reqwest::{Method, StatusCode};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, Error as SqliteError,
 };
@@ -51,8 +55,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
+#[cfg(test)]
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
 use std::error::Error as StdError;
 use std::fs;
 use std::net::{Ipv4Addr, TcpListener as StdTcpListener};
@@ -398,10 +404,12 @@ const GATEWAY_ACCOUNT_REFRESH_CONCURRENCY: usize = 4;
 const GATEWAY_ACCOUNT_REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 const GATEWAY_PREPARATION_CANCELLED: &str = "GATEWAY_PREPARATION_CANCELLED";
 const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(test)]
 const UPSTREAM_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_OPENAI_RESPONSES_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_CODEX_USER_AGENT: &str =
     "codex-tui/0.153.4 (Mac OS 26.5.0; arm64) iTerm.app/3.6.10 (codex-tui; 0.153.4)";
+#[cfg(test)]
 const DEFAULT_CODEX_ORIGINATOR: &str = "codex-tui";
 const CODEX_RESPONSES_WEBSOCKET_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 #[cfg(test)]
@@ -461,6 +469,7 @@ const RESPONSES_PATH: &str = "/v1/responses";
 #[cfg(test)]
 const RESPONSES_COMPACT_PATH: &str = "/v1/responses/compact";
 const BACKEND_CODEX_PREFIX: &str = "/backend-api/codex";
+#[cfg(test)]
 const BACKEND_CODEX_RESPONSES_PATH: &str = "/backend-api/codex/responses";
 #[cfg(test)]
 const BACKEND_CODEX_RESPONSES_COMPACT_PATH: &str = "/backend-api/codex/responses/compact";
@@ -496,6 +505,7 @@ static PROVIDER_GATEWAY_RUNTIMES: OnceLock<TokioMutex<HashMap<String, ProviderGa
 static PROVIDER_GATEWAY_LIFECYCLE_LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
 #[cfg(test)]
 static GATEWAY_ROUND_ROBIN_CURSOR: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
 static UPSTREAM_HTTP_CLIENT: OnceLock<Mutex<Option<CachedUpstreamHttpClient>>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_REFRESH_FAILURES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_REFRESH_CONTROL: OnceLock<TokioMutex<BoundOauthQuotaRefreshControl>> =
@@ -930,6 +940,7 @@ struct UpstreamProxyDiagnostics {
 }
 
 #[derive(Clone)]
+#[cfg(test)]
 struct CachedUpstreamHttpClient {
     signature: UpstreamHttpClientSignature,
     client: Client,
@@ -955,15 +966,20 @@ struct ProxyDispatchError {
 
 #[derive(Debug, Clone)]
 struct ResolvedLocalApiKey {
+    #[cfg(test)]
     id: String,
+    #[cfg(test)]
     label: String,
     provider_gateway: Option<CodexLocalAccessProviderGateway>,
     inherit_account_pool: bool,
     account_ids: Vec<String>,
+    #[cfg(test)]
     model_prefix: Option<String>,
     allowed_models: Vec<String>,
     excluded_models: Vec<String>,
+    #[cfg(test)]
     token_limit: Option<u64>,
+    #[cfg(test)]
     token_used: u64,
 }
 
@@ -1186,6 +1202,7 @@ fn update_gateway_preparation_progress(context: GatewayPreparationContext, compl
     GATEWAY_PREPARATION_COMPLETED.store(completed.min(context.total), Ordering::SeqCst);
 }
 
+#[cfg(test)]
 fn upstream_http_client_cache() -> &'static Mutex<Option<CachedUpstreamHttpClient>> {
     UPSTREAM_HTTP_CLIENT.get_or_init(|| Mutex::new(None))
 }
@@ -1198,6 +1215,7 @@ fn duration_to_millis(duration: Duration) -> u64 {
     duration.as_millis().try_into().unwrap_or(u64::MAX)
 }
 
+#[cfg(test)]
 fn duration_from_millis(value: u64, fallback: Duration) -> Duration {
     if value == 0 {
         return fallback;
@@ -1544,6 +1562,7 @@ fn current_upstream_proxy_diagnostics(
     }
 }
 
+#[cfg(test)]
 fn build_upstream_http_client(signature: &UpstreamHttpClientSignature) -> Result<Client, String> {
     let mut builder = Client::builder().connect_timeout(duration_from_millis(
         signature.connect_timeout_ms,
@@ -1568,6 +1587,7 @@ fn build_localhost_http_client(request_timeout: Duration, label: &str) -> Result
         .map_err(|e| format!("创建{}客户端失败: {}", label, e))
 }
 
+#[cfg(test)]
 fn log_upstream_http_client_signature(signature: &UpstreamHttpClientSignature) {
     match (signature.proxy_source, signature.proxy_url.as_deref()) {
         (UpstreamProxySource::ApiService, Some(proxy_url)) => logger::log_info(&format!(
@@ -1614,6 +1634,7 @@ fn log_sidecar_proxy_signature(signature: &UpstreamHttpClientSignature) {
     }
 }
 
+#[cfg(test)]
 fn upstream_http_client(
     upstream_proxy_url: Option<&str>,
     connect_timeout: Duration,
@@ -2271,12 +2292,14 @@ pub struct CodexOfficialWakeupChatResult {
     pub duration_ms: u64,
 }
 
+#[cfg(test)]
 struct CodexOfficialWakeupHttpResponse {
     account: CodexAccount,
     status: StatusCode,
     body: String,
 }
 
+#[cfg(test)]
 async fn send_agent_identity_wakeup_request_with_base_urls(
     account: &CodexAccount,
     target: &str,
@@ -3302,6 +3325,7 @@ fn rewrite_request_model_alias_value(body_value: &mut Value) -> bool {
     true
 }
 
+#[cfg(test)]
 fn parse_request_body_json(body: &[u8]) -> Option<Value> {
     if body.is_empty() {
         return None;
@@ -3309,6 +3333,7 @@ fn parse_request_body_json(body: &[u8]) -> Option<Value> {
     serde_json::from_slice::<Value>(body).ok()
 }
 
+#[cfg(test)]
 fn proxy_target_path(target: &str) -> &str {
     target.split('?').next().unwrap_or(target).trim()
 }
@@ -3325,6 +3350,7 @@ fn is_images_edits_request(target: &str) -> bool {
     path == IMAGES_EDITS_PATH || path.ends_with("/images/edits")
 }
 
+#[cfg(test)]
 fn is_responses_request(target: &str) -> bool {
     let path = proxy_target_path(target);
     path == RESPONSES_PATH || path == BACKEND_CODEX_RESPONSES_PATH || path.ends_with("/responses")
@@ -3561,6 +3587,7 @@ fn build_image_generation_tool(
     Ok(Value::Object(tool))
 }
 
+#[cfg(test)]
 fn should_inject_image_generation_tool(model: &str) -> bool {
     let normalized = model.trim().to_ascii_lowercase();
     !normalized.is_empty()
@@ -3568,10 +3595,12 @@ fn should_inject_image_generation_tool(model: &str) -> bool {
         && !codex_protocol::codex_model_uses_responses_lite(&normalized)
 }
 
+#[cfg(test)]
 fn is_image_gen_function_name(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("image_gen.imagegen")
 }
 
+#[cfg(test)]
 fn tool_conflicts_with_hosted_image_generation(tool: &Value) -> bool {
     if tool
         .get("name")
@@ -3608,6 +3637,7 @@ fn tool_conflicts_with_hosted_image_generation(tool: &Value) -> bool {
             })
 }
 
+#[cfg(test)]
 fn has_hosted_image_generation_tool_conflict(object: &Map<String, Value>) -> bool {
     let local_conflict = object
         .get("tools")
@@ -3639,6 +3669,7 @@ fn has_hosted_image_generation_tool_conflict(object: &Map<String, Value>) -> boo
             .is_some_and(has_hosted_image_generation_tool_conflict)
 }
 
+#[cfg(test)]
 fn ensure_image_generation_tool_in_object(object: &mut Map<String, Value>) -> bool {
     let model = object.get("model").and_then(Value::as_str).unwrap_or("");
     if !should_inject_image_generation_tool(model) {
@@ -3669,6 +3700,7 @@ fn ensure_image_generation_tool_in_object(object: &mut Map<String, Value>) -> bo
     }
 }
 
+#[cfg(test)]
 fn remove_hosted_image_generation_tool_from_object(object: &mut Map<String, Value>) -> bool {
     let mut changed = false;
     if let Some(Value::Array(tools)) = object.get_mut("tools") {
@@ -3694,6 +3726,7 @@ fn remove_hosted_image_generation_tool_from_object(object: &mut Map<String, Valu
     changed
 }
 
+#[cfg(test)]
 fn remove_hosted_image_generation_capabilities_from_object(
     object: &mut Map<String, Value>,
 ) -> bool {
@@ -3724,6 +3757,7 @@ fn remove_hosted_image_generation_capabilities_from_object(
     changed
 }
 
+#[cfg(test)]
 fn is_image_generation_capability_name(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -3731,6 +3765,7 @@ fn is_image_generation_capability_name(value: &str) -> bool {
     )
 }
 
+#[cfg(test)]
 fn tool_declares_image_generation_capability(tool: &Value) -> bool {
     let Some(tool) = tool.as_object() else {
         return false;
@@ -3764,6 +3799,7 @@ fn tool_declares_image_generation_capability(tool: &Value) -> bool {
             .is_some_and(is_image_gen_function_name)
 }
 
+#[cfg(test)]
 fn tool_choice_selects_image_generation(choice: &Value) -> bool {
     if choice
         .as_str()

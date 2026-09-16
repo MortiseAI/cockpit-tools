@@ -574,6 +574,7 @@ fn legacy_api_key_is_active(collection: &CodexLocalAccessCollection) -> bool {
             .any(|item| item.key.trim() == key)
 }
 
+#[cfg(test)]
 fn sidecar_api_key_manifest_values(collection: &CodexLocalAccessCollection) -> Vec<Value> {
     sidecar_api_key_manifest_values_with_internal(collection, false)
 }
@@ -1069,6 +1070,7 @@ fn remove_account_refs_from_collection(
     changed
 }
 
+#[cfg(test)]
 fn sidecar_client_api_keys(
     collection: &CodexLocalAccessCollection,
     account_overrides: &HashMap<String, CodexAccount>,
@@ -1119,6 +1121,7 @@ fn sidecar_client_api_keys_with_internal(
     keys
 }
 
+#[cfg(test)]
 fn sidecar_api_key_account_scope_values(
     collection: &CodexLocalAccessCollection,
     account_overrides: &HashMap<String, CodexAccount>,

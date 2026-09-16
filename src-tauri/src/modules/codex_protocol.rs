@@ -283,6 +283,7 @@ pub fn normalize_responses_body_for_codex_with_lite(
     changed
 }
 
+#[cfg(test)]
 pub(crate) fn codex_model_uses_responses_lite(model_id: &str) -> bool {
     if model_id.trim().eq_ignore_ascii_case(CODEX_RESERVE_MODEL_ID) {
         return codex_client_model_template(CODEX_RESERVE_MODEL_ID).0["use_responses_lite"]

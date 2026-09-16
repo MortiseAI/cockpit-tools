@@ -2296,29 +2296,39 @@ fn resolve_collection_api_key(
         .iter()
         .find(|item| item.enabled && item.key == normalized)
         .map(|item| ResolvedLocalApiKey {
+            #[cfg(test)]
             id: item.id.clone(),
+            #[cfg(test)]
             label: item.label.clone(),
             provider_gateway: item.provider_gateway.clone(),
             inherit_account_pool: api_key_inherits_account_pool(item),
             account_ids: item.account_ids.clone(),
+            #[cfg(test)]
             model_prefix: item.model_prefix.clone(),
             allowed_models: item.allowed_models.clone(),
             excluded_models: item.excluded_models.clone(),
+            #[cfg(test)]
             token_limit: item.token_limit,
+            #[cfg(test)]
             token_used: item.token_used,
         })
         .or_else(|| {
             if collection.api_key == normalized {
                 Some(ResolvedLocalApiKey {
+                    #[cfg(test)]
                     id: "legacy".to_string(),
+                    #[cfg(test)]
                     label: default_local_api_key_label(),
                     provider_gateway: None,
                     inherit_account_pool: true,
                     account_ids: Vec::new(),
+                    #[cfg(test)]
                     model_prefix: None,
                     allowed_models: Vec::new(),
                     excluded_models: Vec::new(),
+                    #[cfg(test)]
                     token_limit: None,
+                    #[cfg(test)]
                     token_used: 0,
                 })
             } else {

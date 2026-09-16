@@ -696,6 +696,7 @@ fn extract_session_affinity_key(request: &ParsedRequest) -> Option<String> {
         .map(|value| format!("body={}", value))
 }
 
+#[cfg(test)]
 fn header_value<'a>(headers: &'a HashMap<String, String>, name: &str) -> Option<&'a str> {
     headers
         .get(&name.to_ascii_lowercase())
