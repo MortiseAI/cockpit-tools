@@ -1,0 +1,52 @@
+{
+  "skillOverrides": {
+    "stem-verify": "on"
+  },
+  "permissions": {
+    "defaultMode": "auto"
+  },
+  "env": {
+    "STEM_BIZ_NAME": "MortiseAI",
+    "STEM_DEF_LANGUAGE": "zh",
+    "STEM_API_RETRY_INTERVAL_MS": "6000",
+    "STEM_DEBUG": "2",
+    "STEM_LOOP_CRON_ENABLED": "1",
+    "STEM_DIR": ".mstem",
+    "STEM_STORAGE_DIR": "mstem-storage",
+    "STEM_DISABLE_ADVISOR_TOOL": "0"
+  },
+  "chrome": {
+    "enabled": false
+  },
+  "fast": {
+    "enabled": false
+  },
+  "advisor": {
+    "effort": "max",
+    "timeoutMs": 180000
+  },
+  "evo": {
+    "stem": {
+      "repository": "/Volumes/hongyuan.hu/MortiseAI_GitHub/mortise_ai_stem_agent_cli_project",
+      "build": {
+        "command": "npm",
+        "args": [
+          "run",
+          "build"
+        ],
+        "runtimeRoot": "dist",
+        "timeoutMs": 120000
+      }
+    },
+    "directions": {
+      "biz": {
+        "text": "围绕当前业务空间完善 Wiki、Case 和 Ontology，提高知识准确性、案例覆盖率和业务规则一致性。",
+        "revision": 1
+      },
+      "stem": {
+        "text": "围绕 Stem CLI 的稳定性、执行效率和交互体验持续改进，优先解决真实会话中发现的问题，并通过验证确认改进效果。",
+        "revision": 1
+      }
+    }
+  }
+}

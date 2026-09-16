@@ -1,0 +1,23 @@
+{
+  "platforms": {
+    "OAI": {
+      "protocol": "openai",
+      "baseUrl": "http://192.168.2.24:3080/v1",
+      "apiKey": "sk-e8ZJeUvA6tPSEn9ZuLxNpU80akE0ILSuklpGN6CyQLFyaK0t",
+      "authHeader": "bearer",
+      "models": {
+        "Qwen3.8-27B": {
+          "context": "256k",
+          "vision": false,
+          "thinking": true
+        },
+        "deepseek-v4-flash-0731": {
+          "context": "1M",
+          "vision": false,
+          "thinking": true
+        }
+      }
+    }
+  },
+  "default": "codex:gpt-5.6-terra"
+}

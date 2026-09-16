@@ -1,0 +1,37 @@
+{
+  "servers": {
+    "bailian-websearch": {
+      "type": "http",
+      "url": "https://llm-0avy3h8tsjxnc3ws.cn-beijing.maas.aliyuncs.com/api/v1/mcps/WebSearch/mcp",
+      "headers": {
+        "Authorization": "Bearer $bailian$qwen3.8-max$search_mcp_key"
+      }
+    },
+    "minimax": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "mcp<2",
+        "minimax-coding-plan-mcp",
+        "-y"
+      ],
+      "env": {
+        "MINIMAX_API_KEY": "$minimax$MiniMax-M3$search_mcp_key",
+        "MINIMAX_API_HOST": "https://api.minimaxi.com"
+      }
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--viewport",
+        "1280x720",
+        "--screenshotFormat",
+        "webp",
+        "--screenshotMaxWidth",
+        "1568"
+      ]
+    }
+  }
+}

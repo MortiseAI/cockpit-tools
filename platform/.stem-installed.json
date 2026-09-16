@@ -1,0 +1,43 @@
+{
+  "formatVersion": 2,
+  "organizationCode": "PLATFORM",
+  "cliVersion": "0.0.30",
+  "files": [
+    {
+      "path": "llms.json",
+      "size": 7597,
+      "sha256": "c60fcea514c4ccd3a8ac152c70b03130d257a1664665eb1e29da35a217649699",
+      "mode": 420
+    },
+    {
+      "path": "mcp.json",
+      "size": 841,
+      "sha256": "119fd0c0363105142003858a91ac7244cb7332c4680247610d28d9e434c0a779",
+      "mode": 420
+    },
+    {
+      "path": "memory/MEMORY.md",
+      "size": 9,
+      "sha256": "d7870cdadd1ac3b46461cce0776275aeb54f15f19338e597fafd0f277b1f0070",
+      "mode": 420
+    },
+    {
+      "path": "settings.json",
+      "size": 41,
+      "sha256": "d9a0f3dd0250b5755894cedea44935b02bbfd0e35e3a14830a436153218de4aa",
+      "mode": 420
+    },
+    {
+      "path": "settings.local.json",
+      "size": 1274,
+      "sha256": "9cf3f54e759328274c68767dc6787e70a87833cefceb3f909cad3fc0ef18cf6e",
+      "mode": 384
+    },
+    {
+      "path": "xlms.json",
+      "size": 529,
+      "sha256": "60a12c107f789e87186a8d9cb5442c65ce487d6f11889f4ad0e58dd97937aac0",
+      "mode": 384
+    }
+  ]
+}

@@ -10,6 +10,7 @@ include!("codex_local_access_request_logs.rs");
 include!("codex_local_access_profile_takeover.rs");
 include!("codex_local_access_sidecar_config.rs");
 include!("codex_local_access_sidecar_recovery.rs");
+include!("codex_local_access_automatic_routing.rs");
 include!("codex_local_access_sidecar_runtime.rs");
 include!("codex_local_access_collection.rs");
 include!("codex_local_access_gateway_runtime.rs");
@@ -27,9 +28,11 @@ include!("codex_local_access_recovery.rs");
 #[cfg(test)]
 mod tests {
     include!("codex_local_access_tests_fixed_endpoint.rs");
+    include!("codex_local_access_tests_automatic_routing.rs");
     include!("codex_local_access_tests_sidecar_gateway.rs");
     include!("codex_local_access_tests_sidecar_recovery.rs");
     include!("codex_local_access_tests_pricing_profile.rs");
     include!("codex_local_access_tests_request_routing.rs");
     include!("codex_local_access_tests_takeover.rs");
+    include!("codex_local_access_tests_internal_service.rs");
 }
