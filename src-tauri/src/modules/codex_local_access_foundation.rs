@@ -954,7 +954,6 @@ struct ProxyDispatchError {
 }
 
 #[derive(Debug, Clone)]
-#[cfg(test)]
 struct ResolvedLocalApiKey {
     id: String,
     label: String,
