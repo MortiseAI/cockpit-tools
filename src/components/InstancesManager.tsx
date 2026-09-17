@@ -1737,25 +1737,6 @@ export function InstancesManager<TAccount extends AccountLike>({
     return true;
   };
 
-  const handleCodexManagedStoreLaunchError = (error: unknown) => {
-    const message = String(error ?? "").replace(/^Error:\s*/, "");
-    const prefix = "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:";
-    if (appType !== "codex" || !message.startsWith(prefix)) {
-      return false;
-    }
-
-    const detail = message.slice(prefix.length).trim();
-    setMessage({
-      text: t(
-        "instances.messages.codexManagedStoreLaunchUnsafe",
-        "Windows Store 无法可靠传递实例目录，已阻止打开默认账号。请将该实例的启动方式切换为 CLI 后重试。详情：{{detail}}",
-        { detail },
-      ),
-      tone: "error",
-    });
-    return true;
-  };
-
   const triggerDelayedRefreshAfterStart = () => {
     window.setTimeout(() => {
       refreshInstances().catch(() => {
@@ -1841,9 +1822,6 @@ export function InstancesManager<TAccount extends AccountLike>({
         if (handleMissingPathError(e, instance.id)) {
           return "missing-path";
         }
-        if (handleCodexManagedStoreLaunchError(e)) {
-          return "failed";
-        }
         const retryStart = async () => {
           const startedInstance = await startInstance(instance.id);
           await Promise.resolve(onInstanceStarted?.(startedInstance));
@@ -1877,7 +1855,6 @@ export function InstancesManager<TAccount extends AccountLike>({
     },
     [
       handleMissingPathError,
-      handleCodexManagedStoreLaunchError,
       isCodexApp,
       markInstanceStarting,
       onBeforeStart,

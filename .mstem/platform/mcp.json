@@ -7,19 +7,6 @@
         "Authorization": "Bearer $bailian$qwen3.8-max$search_mcp_key"
       }
     },
-    "minimax": {
-      "command": "uvx",
-      "args": [
-        "--with",
-        "mcp<2",
-        "minimax-coding-plan-mcp",
-        "-y"
-      ],
-      "env": {
-        "MINIMAX_API_KEY": "$minimax$MiniMax-M3$search_mcp_key",
-        "MINIMAX_API_HOST": "https://api.minimaxi.com"
-      }
-    },
     "chrome-devtools": {
       "command": "npx",
       "args": [

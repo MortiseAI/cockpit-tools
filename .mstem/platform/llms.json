@@ -73,114 +73,6 @@
         }
       }
     },
-    "bailian": {
-      "protocol": "anthropic",
-      "baseUrl": "https://ws-q1vi25gxlw4fjilu.cn-beijing.maas.aliyuncs.com/apps/anthropic",
-      "apiKey": "sk-ws-H.PHDRXPE.3KwD.MEYCIQCiwI6ItqZcMKRe5PxM0BU2HnVzzoBsf1ngiqFP1XDCTgIhALPCsUvfdTpMj0Dx8A8Sgw7tocRD7gZ4hQP0oE1DcEG2",
-      "authHeader": "bearer",
-      "models": {
-        "qwen3.8-max": {
-          "context": "1M",
-          "vision": true,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "minimax/web_search",
-          "search_mcp_key": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0",
-          "maxOutputTokens": 131072
-        },
-        "qwen3.8-flash": {
-          "context": "1M",
-          "vision": true,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "minimax/web_search",
-          "search_mcp_key": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0",
-          "maxOutputTokens": 131072
-        },
-        "glm-5.2": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "minimax/web_search",
-          "search_mcp_key": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0",
-          "maxOutputTokens": 131072
-        },
-        "deepseek-v4-pro-0813": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "minimax/web_search",
-          "search_mcp_key": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0",
-          "maxOutputTokens": 393216
-        },
-        "deepseek-v4-flash-0731": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "minimax/web_search",
-          "search_mcp_key": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0",
-          "maxOutputTokens": 393216
-        },
-        "kimi-k2.7-code": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "minimax/web_search",
-          "search_mcp_key": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0",
-          "maxOutputTokens": 16384
-        }
-      }
-    },
-    "minimax": {
-      "protocol": "anthropic",
-      "baseUrl": "https://api.minimaxi.com/anthropic",
-      "apiKey": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0",
-      "authHeader": "bearer",
-      "models": {
-        "MiniMax-M3": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "search": "mcp",
-          "search_mcp": "minimax/web_search",
-          "search_mcp_key": "sk-cp-PuJFzGc6I-otSoOwwvRvkK_93R50GetFytzmHs31497qWE6h_4T6rwOslrh29YYtzOYs_RZ_0slPAY_2nGHuB6xHaQL4m2r5GL1qd23nzYEU3x1XZ20jDo0"
-        }
-      }
-    },
-    "ucloud": {
-      "protocol": "anthropic",
-      "baseUrl": "https://cp.compshare.cn",
-      "apiKey": "sk-cp-zNkMXcZ8Bk4cORG7IKtSWgQwMUbvKd-JzNHMKqCDM7Q",
-      "authHeader": "x-api-key",
-      "models": {
-        "deepseek-v4-flash-0731": {
-          "context": "256k",
-          "vision": false,
-          "thinking": true,
-          "search": "api",
-          "search_api_url": "https://api.tavily.com/search",
-          "search_api_key": "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"
-        },
-        "deepseek-v4-flash-vision-exp": {
-          "context": "256k",
-          "vision": false,
-          "thinking": true,
-          "search": "api",
-          "search_api_url": "https://api.tavily.com/search",
-          "search_api_key": "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"
-        }
-      }
-    },
     "oai": {
       "protocol": "openai",
       "baseUrl": "https://api.oristrat.com/v1",
@@ -231,6 +123,68 @@
           "context": "1M",
           "vision": true,
           "thinking": true,
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search",
+          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
+        }
+      }
+    },
+    "bailian": {
+      "protocol": "anthropic",
+      "baseUrl": "https://ws-q1vi25gxlw4fjilu.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+      "apiKey": "sk-ws-H.PHDRXPE.3KwD.MEYCIQCiwI6ItqZcMKRe5PxM0BU2HnVzzoBsf1ngiqFP1XDCTgIhALPCsUvfdTpMj0Dx8A8Sgw7tocRD7gZ4hQP0oE1DcEG2",
+      "authHeader": "bearer",
+      "models": {
+        "qwen3.8-max": {
+          "context": "1M",
+          "vision": true,
+          "thinking": true,
+          "thinking_budget": 4000,
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search",
+          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
+        },
+        "qwen3.8-flash": {
+          "context": "1M",
+          "vision": true,
+          "thinking": true,
+          "thinking_budget": 4000,
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search",
+          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
+        },
+        "glm-5.2": {
+          "context": "1M",
+          "vision": false,
+          "thinking": true,
+          "thinking_budget": 4000,
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search",
+          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
+        },
+        "deepseek-v4-pro-0813": {
+          "context": "1M",
+          "vision": false,
+          "thinking": true,
+          "thinking_budget": 4000,
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search",
+          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
+        },
+        "deepseek-v4-flash-0731": {
+          "context": "1M",
+          "vision": false,
+          "thinking": true,
+          "thinking_budget": 4000,
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search",
+          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
+        },
+        "kimi-k2.7-code": {
+          "context": "1M",
+          "vision": false,
+          "thinking": true,
+          "thinking_budget": 4000,
           "search": "mcp",
           "search_mcp": "bailian-websearch/bailian_web_search",
           "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
