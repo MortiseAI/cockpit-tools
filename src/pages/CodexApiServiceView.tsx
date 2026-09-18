@@ -124,6 +124,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     handleSaveApiKeyLabel,
     handleSaveApiKeyPolicy,
     handleSaveMembersFromModal,
+    handleAddGrokMemberToApiService,
     handleSaveModelPricings,
     handleSaveModelRules,
     handleSavePort,
@@ -4068,6 +4069,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
         accountsLoaded={accountsLoaded}
         accountGroups={groups}
         memberView={memberView}
+        onAddGrokMember={handleAddGrokMemberToApiService}
         initialSelectedIds={memberIds}
         maskAccountText={maskAccountText}
         onClose={() => setMemberModalOpen(false)}
