@@ -22,12 +22,26 @@ const commandEnv = isDevCommand
     }
   : {};
 
+const cargoBinPath = path.join(os.homedir(), '.cargo', 'bin');
+
 function withTauriEnv(options = {}) {
+  const currentPath = process.env.PATH || '';
+  const extraPaths = [cargoBinPath, goBinPath].filter((dir) => fs.existsSync(dir));
+  const mergedOptions = extraPaths.length
+    ? {
+        ...options,
+        env: {
+          ...options.env,
+          PATH: `${extraPaths.join(path.delimiter)}${path.delimiter}${currentPath}`,
+        },
+      }
+    : options;
+
   return {
-    ...options,
+    ...mergedOptions,
     env: createTauriEnv({
       ...commandEnv,
-      ...options.env,
+      ...mergedOptions.env,
     }),
   };
 }
@@ -74,9 +88,15 @@ if (process.platform !== 'win32') {
   runFinal('npx', ['tauri', ...tauriArgs]);
 }
 
-const vcvars64Path = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat';
+const vcvarsCandidates = [
+  'C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Auxiliary\\Build\\vcvars64.bat',
+  'C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvars64.bat',
+  'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat',
+  'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat',
+];
+const vcvars64Path = vcvarsCandidates.find((candidate) => fs.existsSync(candidate)) || '';
 
-if (!fs.existsSync(vcvars64Path)) {
+if (!vcvars64Path) {
   console.warn('vcvars64.bat not found, falling back to the existing shell environment.');
   runTauriDirect();
 }
@@ -96,7 +116,7 @@ const quotedArgs = tauriArgs.map((arg) => {
 });
 const scriptBody = [
   '@echo off',
-  `set "PATH=${goBinPath};%PATH%"`,
+  `set "PATH=${cargoBinPath};${goBinPath};%PATH%"`,
   `call "${vcvars64Path}"`,
   'if errorlevel 1 exit /b %errorlevel%',
   'call npm.cmd run sync-version',
