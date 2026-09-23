@@ -16,7 +16,7 @@ export interface CodexExperimentalModelDefinition {
   auto_compact_token_limit?: number;
 }
 
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+export type CodexReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 
 export interface CodexQuickConfig {
   context_window_1m: boolean;

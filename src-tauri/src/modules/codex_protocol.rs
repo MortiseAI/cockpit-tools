@@ -244,12 +244,14 @@ pub(crate) fn managed_codex_model_ids() -> Vec<String> {
         .map(str::to_string)
         .collect::<Vec<_>>();
 
-    if let Some(index) = model_ids
-        .iter()
-        .position(|model| model.eq_ignore_ascii_case("gpt-6-astra"))
-    {
-        let astra = model_ids.remove(index);
-        model_ids.insert(0, astra);
+    for preferred in ["gpt-6-luna", "gpt-6-sol", "gpt-6-astra"] {
+        if let Some(index) = model_ids
+            .iter()
+            .position(|model| model.eq_ignore_ascii_case(preferred))
+        {
+            let model = model_ids.remove(index);
+            model_ids.insert(0, model);
+        }
     }
 
     model_ids
@@ -528,7 +530,8 @@ fn codex_client_model_catalog() -> &'static Value {
 }
 
 fn inherit_routed_gpt_capabilities(object: &mut Map<String, Value>, model_id: &str) {
-    let Some((namespace, upstream)) = model_id.split_once('/') else {
+    let normalized = model_id.trim().to_ascii_lowercase();
+    let Some((namespace, upstream)) = normalized.split_once('/') else {
         return;
     };
     if namespace.is_empty() || !upstream.starts_with("gpt-") || upstream.contains('/') {
@@ -550,6 +553,34 @@ fn inherit_routed_gpt_capabilities(object: &mut Map<String, Value>, model_id: &s
             object.insert(field.to_string(), value.clone());
         }
     }
+    // API routes have public API limits/efforts, distinct from subscription
+    // metadata (notably Sol's Codex-only ultra and the client's context defaults).
+    if matches!(upstream, "gpt-6-sol" | "gpt-6-luna") {
+        object.insert("context_window".to_string(), json!(1_050_000));
+        object.insert("max_context_window".to_string(), json!(1_050_000));
+        object.insert("default_reasoning_level".to_string(), json!("medium"));
+        object.insert(
+            "supported_reasoning_levels".to_string(),
+            json!(["none", "low", "medium", "high", "xhigh", "max"]
+                .map(|effort| { json!({"effort": effort, "description": effort}) })),
+        );
+    }
+}
+
+pub(crate) fn gpt_6_sol_luna_supports_reasoning_effort(model_id: &str, effort: &str) -> bool {
+    let model_id = model_id.trim().to_ascii_lowercase();
+    let upstream = model_id.rsplit('/').next().unwrap_or(&model_id);
+    if !matches!(upstream, "gpt-6-sol" | "gpt-6-luna") {
+        return true;
+    }
+    let model = build_codex_client_model(&model_id, 0);
+    model["supported_reasoning_levels"]
+        .as_array()
+        .is_some_and(|levels| {
+            levels
+                .iter()
+                .any(|level| level["effort"].as_str() == Some(effort))
+        })
 }
 
 /// Grok 平台模型沿用的官方多智能体协议版本；与官方 DeepSeek 条目保持一致。
@@ -632,6 +663,8 @@ fn display_name_for_model(model_id: &str) -> String {
         "gpt-5.3-codex" => "GPT-5.3 Codex".to_string(),
         "gpt-5.3-codex-spark" => "GPT-5.3 Codex Spark".to_string(),
         "gpt-6-astra" => "6 Astra".to_string(),
+        "gpt-6-sol" => "6 Sol".to_string(),
+        "gpt-6-luna" => "6 Luna".to_string(),
         "gpt-5.2" => "GPT-5.2".to_string(),
         "gpt-5.2-codex" => "GPT-5.2 Codex".to_string(),
         "gpt-5.1-codex-max" => "GPT-5.1 Codex Max".to_string(),
@@ -1827,6 +1860,8 @@ mod tests {
             managed_codex_model_ids(),
             vec![
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna"
@@ -1946,6 +1981,43 @@ mod tests {
             model.get("use_responses_lite").and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    #[test]
+    fn gpt_6_sol_luna_separate_codex_and_api_capabilities() {
+        for (id, ultra) in [("gpt-6-sol", true), ("gpt-6-luna", false)] {
+            let response =
+                build_codex_client_models_response(&[id.to_string(), format!("openai/{id}")]);
+            let model = &response["models"][0];
+            assert_eq!(model["context_window"], 272_000);
+            assert_eq!(model["max_context_window"], 872_000);
+            assert_eq!(model["use_responses_lite"], true);
+            assert_eq!(model["multi_agent_version"], "v2");
+            assert_eq!(model["default_reasoning_level"], "medium");
+            assert_eq!(gpt_6_sol_luna_supports_reasoning_effort(id, "ultra"), ultra);
+            assert!(!gpt_6_sol_luna_supports_reasoning_effort(id, "none"));
+            let api = &response["models"][1];
+            assert_eq!(api["context_window"], 1_050_000);
+            assert_eq!(api["supported_reasoning_levels"][0]["effort"], "none");
+            assert_eq!(
+                api["supported_reasoning_levels"]
+                    .as_array()
+                    .unwrap()
+                    .last()
+                    .unwrap()["effort"],
+                "max"
+            );
+            let override_catalog =
+                build_codex_client_models_response_with_model_definitions_and_reasoning(&[(
+                    format!("openai/{id}"),
+                    "API".into(),
+                    Some(vec!["none".into()]),
+                )]);
+            assert_eq!(
+                override_catalog["models"][0]["default_reasoning_level"],
+                "none"
+            );
+        }
     }
 
     #[test]

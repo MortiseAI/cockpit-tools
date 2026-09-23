@@ -197,68 +197,6 @@
           "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
         }
       }
-    },
-    "bailian": {
-      "protocol": "anthropic",
-      "baseUrl": "https://ws-q1vi25gxlw4fjilu.cn-beijing.maas.aliyuncs.com/apps/anthropic",
-      "apiKey": "sk-ws-H.PHDRXPE.3KwD.MEYCIQCiwI6ItqZcMKRe5PxM0BU2HnVzzoBsf1ngiqFP1XDCTgIhALPCsUvfdTpMj0Dx8A8Sgw7tocRD7gZ4hQP0oE1DcEG2",
-      "authHeader": "bearer",
-      "models": {
-        "qwen3.8-max": {
-          "context": "1M",
-          "vision": true,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "bailian-websearch/bailian_web_search",
-          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
-        },
-        "qwen3.8-flash": {
-          "context": "1M",
-          "vision": true,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "bailian-websearch/bailian_web_search",
-          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
-        },
-        "glm-5.2": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "bailian-websearch/bailian_web_search",
-          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
-        },
-        "deepseek-v4-pro-0813": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "bailian-websearch/bailian_web_search",
-          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
-        },
-        "deepseek-v4-flash-0731": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "bailian-websearch/bailian_web_search",
-          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
-        },
-        "kimi-k2.7-code": {
-          "context": "1M",
-          "vision": false,
-          "thinking": true,
-          "thinking_budget": 4000,
-          "search": "mcp",
-          "search_mcp": "bailian-websearch/bailian_web_search",
-          "search_mcp_key": "sk-ws-H.ERYYXED.dpiA.MEYCIQC44-hR1feM53_VilBKyvTzHE6bXCMVHz3wWcze-EnuCgIhALZdUlOwpGNC38VDV_nTzbfTqQyG6x_QZa1lptFLrfSv"
-        }
-      }
     }
   },
   "default": "oai:qwen3.8-max"

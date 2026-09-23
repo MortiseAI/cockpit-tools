@@ -654,12 +654,57 @@ fn maybe_add_gpt_6_astra_to_previous_shipped_model_definitions(
     prioritize_gpt_6_astra_model_definition(models)
 }
 
+/// Upgrade only generated defaults. A marker (or an already recorded migration)
+/// means the user's visibility choices, including removals, take precedence.
+fn maybe_add_gpt_6_sol_luna_model_definitions(
+    base_dir: &Path,
+    mut models: Vec<CodexExperimentalModelDefinition>,
+) -> Vec<CodexExperimentalModelDefinition> {
+    if has_saved_experimental_model_definitions(base_dir)
+        || experimental_model_catalog_has_migration(
+            base_dir,
+            GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID,
+        )
+    {
+        return models;
+    }
+    let previous_defaults_present = SHIPPED_VISIBLE_CODEX_MODEL_IDS
+        .iter()
+        .filter(|id| !GPT_6_SOL_LUNA_MODEL_IDS.contains(id) && **id != "gpt-reserve")
+        .filter(|id| !crate::modules::codex_wakeup::is_codex_model_before_5_5(id))
+        .all(|id| {
+            models
+                .iter()
+                .any(|model| model.model_id.eq_ignore_ascii_case(id))
+        });
+    if !previous_defaults_present {
+        return models;
+    }
+    let additions = default_experimental_model_definitions(base_dir)
+        .into_iter()
+        .filter(|model| GPT_6_SOL_LUNA_MODEL_IDS.contains(&model.model_id.as_str()))
+        .filter(|model| {
+            !models
+                .iter()
+                .any(|existing| existing.model_id.eq_ignore_ascii_case(&model.model_id))
+        })
+        .collect::<Vec<_>>();
+    let insert_at = models
+        .iter()
+        .position(|model| model.model_id.eq_ignore_ascii_case(GPT_6_ASTRA_MODEL_ID))
+        .map_or(models.len(), |index| index + 1);
+    models.splice(insert_at..insert_at, additions);
+    models
+}
+
 fn model_catalog_display_name(model_id: &str, fallback: &str) -> String {
     match model_id.trim().to_ascii_lowercase().as_str() {
         "gpt-5.6-sol" => "5.6 Sol".to_string(),
         "gpt-5.6-terra" => "5.6 Terra".to_string(),
         "gpt-5.6-luna" => "5.6 Luna".to_string(),
         GPT_6_ASTRA_MODEL_ID => "6 Astra".to_string(),
+        "gpt-6-sol" => "6 Sol".to_string(),
+        "gpt-6-luna" => "6 Luna".to_string(),
         "gpt-5.3-codex" => "5.3 Codex".to_string(),
         "gpt-5.5" => "5.5".to_string(),
         "gpt-5.4" => "5.4".to_string(),
@@ -737,10 +782,20 @@ pub(crate) fn normalize_experimental_model_definitions(
                 return Err("EXPERIMENTAL_MODEL_CATALOG_AUTO_COMPACT_RANGE_INVALID".to_string());
             }
         }
+        let reasoning_efforts = normalize_reasoning_efforts(model.reasoning_efforts.clone())?;
+        if reasoning_efforts.as_ref().is_some_and(|efforts| {
+            efforts.iter().any(|effort| {
+                !crate::modules::codex_protocol::gpt_6_sol_luna_supports_reasoning_effort(
+                    model_id, effort,
+                )
+            })
+        }) {
+            return Err("EXPERIMENTAL_MODEL_CATALOG_REASONING_EFFORT_INVALID".to_string());
+        }
         normalized.push(CodexExperimentalModelDefinition {
             model_id: model_id.to_string(),
             display_name: display_name.to_string(),
-            reasoning_efforts: normalize_reasoning_efforts(model.reasoning_efforts.clone())?,
+            reasoning_efforts,
             context_window: model.context_window,
             auto_compact_token_limit: model.auto_compact_token_limit,
         });
@@ -757,7 +812,7 @@ pub(crate) fn read_experimental_model_definitions(
     };
     let mut models = match serde_json::from_str::<ExperimentalModelCatalogConfig>(&content)
         .map_err(|error| error.to_string())
-        .and_then(|config| {
+        .and_then(|mut config| {
             let requires_catalog_migration =
                 config.version < EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION;
             let should_add_astra = config.version == EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION
@@ -765,6 +820,21 @@ pub(crate) fn read_experimental_model_definitions(
                     .migrations
                     .iter()
                     .any(|item| item == GPT_6_ASTRA_MODEL_CATALOG_MIGRATION_ID);
+            // A manually added model could have used the old generic effort
+            // picker. Repair that override without discarding the saved list.
+            for model in &mut config.models {
+                if let Some(efforts) = model.reasoning_efforts.as_mut() {
+                    efforts.retain(|effort| {
+                        crate::modules::codex_protocol::gpt_6_sol_luna_supports_reasoning_effort(
+                            &model.model_id,
+                            &effort.trim().to_ascii_lowercase(),
+                        )
+                    });
+                    if efforts.is_empty() {
+                        model.reasoning_efforts = None;
+                    }
+                }
+            }
             normalize_experimental_model_definitions(config.models).map(|models| {
                 (models, requires_catalog_migration, should_add_astra)
             })
@@ -789,6 +859,7 @@ pub(crate) fn read_experimental_model_definitions(
             default_experimental_model_definitions(base_dir)
         }
     };
+    models = maybe_add_gpt_6_sol_luna_model_definitions(base_dir, models);
     if !models.iter().any(|model| model.model_id.eq_ignore_ascii_case("gpt-reserve")) {
         models.push(CodexExperimentalModelDefinition {
             model_id: "gpt-reserve".to_string(),
@@ -846,6 +917,12 @@ fn persist_experimental_model_definitions(
         .any(|item| item == GPT_6_ASTRA_MODEL_CATALOG_MIGRATION_ID)
     {
         migrations.push(GPT_6_ASTRA_MODEL_CATALOG_MIGRATION_ID.to_string());
+    }
+    if !migrations
+        .iter()
+        .any(|item| item == GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID)
+    {
+        migrations.push(GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID.to_string());
     }
     let mut content = serde_json::to_string_pretty(&ExperimentalModelCatalogConfig {
         version: EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION,
@@ -2300,8 +2377,8 @@ fn cleanup_managed_model_catalog_for_dir(base_dir: &Path) -> Result<bool, String
 
 /// 启动时按版本戳重建落后的受管模型目录。
 ///
-/// 目录内容用「旧目录里的模型清单 + 当前生成逻辑」重建，只刷新结构/能力字段，
-/// 不改变用户实际可用的模型集合；展示名沿用旧目录，避免界面名称漂移。
+/// 目录内容用旧模型清单和当前能力重建。启用受管清单的默认 profile 同时执行
+/// 新模型增量迁移；自定义清单保留选择、展示名及用户覆盖的参数。
 pub(crate) fn rebuild_stale_managed_model_catalogs() -> usize {
     let mut rebuilt = 0usize;
     for base_dir in managed_catalog_profile_dirs() {
@@ -2357,12 +2434,30 @@ fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), Stri
         .and_then(JsonValue::as_array)
         .cloned()
         .unwrap_or_default();
-    let model_ids = old_models
+    let mut model_ids = old_models
         .iter()
         .filter_map(|model| model.get("slug").and_then(JsonValue::as_str).map(str::to_string))
         .collect::<Vec<_>>();
     if model_ids.is_empty() {
         return Err("现有模型目录没有可重建的模型条目".to_string());
+    }
+    let base_dir = catalog_path.parent().ok_or("模型目录缺少父目录")?;
+    let managed_policy = experimental_model_policy_enabled(base_dir);
+    if managed_policy {
+        let definitions = model_ids
+            .iter()
+            .map(|id| CodexExperimentalModelDefinition {
+                model_id: id.clone(),
+                display_name: id.clone(),
+                reasoning_efforts: None,
+                context_window: None,
+                auto_compact_token_limit: None,
+            })
+            .collect();
+        model_ids = maybe_add_gpt_6_sol_luna_model_definitions(base_dir, definitions)
+            .into_iter()
+            .map(|model| model.model_id)
+            .collect();
     }
     let mut rebuilt =
         crate::modules::codex_protocol::build_codex_client_models_response(&model_ids);
@@ -2385,10 +2480,52 @@ fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), Stri
             }
         }
     }
+    if managed_policy {
+        let definitions = read_experimental_model_definitions(base_dir);
+        if let Some(models) = rebuilt.get_mut("models").and_then(JsonValue::as_array_mut) {
+            for model in models {
+                if let Some(definition) = definitions.iter().find(|definition| {
+                    model["slug"]
+                        .as_str()
+                        .is_some_and(|slug| slug.eq_ignore_ascii_case(&definition.model_id))
+                }) {
+                    if let Some(efforts) = definition.reasoning_efforts.as_ref() {
+                        let catalog = crate::modules::codex_protocol::build_codex_client_models_response_with_model_definitions_and_reasoning(
+                            &[(definition.model_id.clone(), definition.display_name.clone(), Some(efforts.clone()))],
+                        );
+                        for field in ["supported_reasoning_levels", "default_reasoning_level"] {
+                            model[field] = catalog["models"][0][field].clone();
+                        }
+                    }
+                }
+            }
+        }
+        apply_model_context_config_to_catalog(&mut rebuilt, &definitions);
+    }
     let mut content = serde_json::to_string_pretty(&rebuilt)
         .map_err(|e| format!("序列化重建后的模型目录失败: {}", e))?;
     content.push('\n');
     crate::modules::atomic_write::write_string_atomic(catalog_path, &content)?;
+    if managed_policy {
+        if let Some(mut config) = read_experimental_model_catalog_config(base_dir) {
+            if !config
+                .migrations
+                .iter()
+                .any(|id| id == GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID)
+            {
+                config.models = maybe_add_gpt_6_sol_luna_model_definitions(base_dir, config.models);
+                config
+                    .migrations
+                    .push(GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID.to_string());
+                let serialized = serde_json::to_string_pretty(&config)
+                    .map_err(|e| format!("序列化模型目录迁移失败: {}", e))?;
+                write_string_atomic(
+                    &experimental_model_config_path(base_dir),
+                    &(serialized + "\n"),
+                )?;
+            }
+        }
+    }
     crate::modules::codex_managed_model_catalog_version::write_managed_catalog_meta(catalog_path)
 }
 

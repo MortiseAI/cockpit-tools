@@ -1721,7 +1721,7 @@ func buildOllamaShowResponse(model string, modifiedAt time.Time) gin.H {
 
 func ollamaModelFamily(model string) string {
 	normalized := strings.ToLower(strings.TrimSpace(model))
-	for _, prefix := range []string{"gpt-6-astra", "gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
+	for _, prefix := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
 		if strings.HasPrefix(normalized, prefix) {
 			return prefix
 		}
@@ -1739,6 +1739,8 @@ func ollamaModelFamily(model string) string {
 
 func ollamaContextLength(model string) int {
 	switch {
+	case strings.HasPrefix(model, "gpt-6-sol"), strings.HasPrefix(model, "gpt-6-luna"):
+		return 1050000
 	case strings.HasPrefix(model, "gpt-6-astra"):
 		return 1050000
 	case strings.HasPrefix(model, "gpt-5.6"):
@@ -1754,6 +1756,10 @@ func ollamaContextLength(model string) int {
 
 func ollamaReasoningEfforts(model string) []string {
 	switch {
+	case strings.HasPrefix(model, "gpt-6-sol"):
+		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+	case strings.HasPrefix(model, "gpt-6-luna"):
+		return []string{"low", "medium", "high", "xhigh", "max"}
 	case strings.HasPrefix(model, "gpt-6-astra"):
 		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 	case strings.HasPrefix(model, "gpt-5.6-sol"), strings.HasPrefix(model, "gpt-5.6-terra"):
@@ -1925,6 +1931,15 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec, windows m
 					if value, exists := template[field]; exists {
 						model[field] = value
 					}
+				}
+				if upstream == "gpt-6-sol" || upstream == "gpt-6-luna" {
+					model["context_window"], model["max_context_window"] = 1050000, 1050000
+					model["default_reasoning_level"] = "medium"
+					levels := make([]any, 0, 6)
+					for _, effort := range []string{"none", "low", "medium", "high", "xhigh", "max"} {
+						levels = append(levels, map[string]any{"effort": effort, "description": effort})
+					}
+					model["supported_reasoning_levels"] = levels
 				}
 				break
 			}
@@ -2098,6 +2113,10 @@ func applyAutomaticRouteModelMetadata(spec *apiKeySpec, model map[string]any, sl
 // officialAutomaticModelDisplayName 返回 Cockpit 对官方命名空间模型的展示名。
 func officialAutomaticModelDisplayName(slug string) string {
 	switch strings.ToLower(strings.TrimSpace(slug)) {
+	case "gpt-6-sol":
+		return "GPT-6 Sol"
+	case "gpt-6-luna":
+		return "GPT-6 Luna"
 	case "gpt-6-astra":
 		return "GPT-6 Astra"
 	case "gpt-5.6-sol":
@@ -2173,6 +2192,10 @@ func hydrateCodexCompatibilityModels(models []map[string]any) {
 
 func displayNameForModel(model string) string {
 	switch model {
+	case "gpt-6-sol":
+		return "GPT-6 Sol"
+	case "gpt-6-luna":
+		return "GPT-6 Luna"
 	case "gpt-5-codex":
 		return "GPT-5 Codex"
 	case "gpt-5-codex-mini":
@@ -2528,6 +2551,8 @@ func canonicalModelForClientModel(m *manifest, spec *apiKeySpec, model string) s
 // 原始标记会直接落进正文，表现为「模型不能用工具」。
 var codexShellModelIDs = []string{
 	"gpt-6-astra",
+	"gpt-6-sol",
+	"gpt-6-luna",
 	"gpt-5.6-sol",
 	"gpt-5.6-terra",
 	"gpt-5.6-luna",

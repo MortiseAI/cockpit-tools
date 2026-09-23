@@ -19,6 +19,13 @@ func ResolveModelInfo(name, modelType string, support *registry.ThinkingSupport)
 	}
 	info.ID = trimmedName
 	info.Type = strings.TrimSpace(modelType)
+	// Configured API keys use public API efforts, not the Codex subscription
+	// registry's ultra capability. Keep none from being clamped to low in transit.
+	if strings.EqualFold(baseName, "gpt-6-sol") || strings.EqualFold(baseName, "gpt-6-luna") {
+		info.Thinking = NormalizeThinkingSupport(&registry.ThinkingSupport{
+			Levels: []string{"none", "low", "medium", "high", "xhigh", "max"},
+		})
+	}
 	if support != nil {
 		info.Thinking = NormalizeThinkingSupport(support)
 	}

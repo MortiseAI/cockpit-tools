@@ -3,8 +3,10 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +26,48 @@ func TestEmbeddedCodexClientModelsCatalogIsValid(t *testing.T) {
 	}
 	if err := ValidateCodexClientModelsJSON(second); err != nil {
 		t.Fatalf("mutating returned snapshot changed stored catalog: %v", err)
+	}
+}
+
+func TestMergePinnedGPT6ModelsPreservesPartialRemoteCatalog(t *testing.T) {
+	remoteSol := testCodexClientModel("GPT-6-SOL", 9)
+	remoteSol["display_name"] = "Remote Sol"
+	remote := testCodexClientCatalog(t, testCodexClientModel("gpt-5.5", 1), remoteSol)
+	merged, err := mergeLocallyPinnedCodexClientModels(remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCodexClientModelsJSON(merged); err != nil {
+		t.Fatal(err)
+	}
+	var payload codexClientModelsPayload
+	if err := json.Unmarshal(merged, &payload); err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, model := range payload.Models {
+		slug := strings.ToLower(fmt.Sprint(model["slug"]))
+		counts[slug]++
+		if slug == "gpt-6-sol" && model["display_name"] != "Remote Sol" {
+			t.Fatal("remote metadata overwritten")
+		}
+		if slug == "gpt-6-luna" {
+			if model["context_window"] != float64(272000) || model["max_context_window"] != float64(872000) {
+				t.Fatal("wrong Codex context limits")
+			}
+			if model["multi_agent_version"] != "v2" || model["use_responses_lite"] != true {
+				t.Fatal("missing Codex capabilities")
+			}
+		}
+	}
+	for _, slug := range locallyPinnedCodexClientModelSlugs {
+		if counts[slug] != 1 {
+			t.Fatalf("%s count = %d", slug, counts[slug])
+		}
+	}
+	again, err := mergeLocallyPinnedCodexClientModels(merged)
+	if err != nil || string(again) != string(merged) {
+		t.Fatal("merge is not idempotent")
 	}
 }
 
@@ -93,7 +137,7 @@ func TestMergeLocallyPinnedCodexClientModelsKeepsAstraWhenRemoteLags(t *testing.
 	}
 	var astra map[string]any
 	for _, model := range payload.Models {
-		if model["slug"] == locallyPinnedCodexClientModelSlug {
+		if model["slug"] == codexBuiltinGPT6AstraModelID {
 			astra = model
 		}
 	}
@@ -106,7 +150,7 @@ func TestMergeLocallyPinnedCodexClientModelsKeepsAstraWhenRemoteLags(t *testing.
 }
 
 func TestMergeLocallyPinnedCodexClientModelsPrefersRemoteAstraMetadata(t *testing.T) {
-	remoteAstra := testCodexClientModel(locallyPinnedCodexClientModelSlug, 4)
+	remoteAstra := testCodexClientModel(codexBuiltinGPT6AstraModelID, 4)
 	remoteAstra["display_name"] = "Remote Astra"
 	remote := testCodexClientCatalog(
 		t,
@@ -124,7 +168,7 @@ func TestMergeLocallyPinnedCodexClientModelsPrefersRemoteAstraMetadata(t *testin
 	}
 	count := 0
 	for _, model := range payload.Models {
-		if model["slug"] == locallyPinnedCodexClientModelSlug {
+		if model["slug"] == codexBuiltinGPT6AstraModelID {
 			count++
 			if model["display_name"] != "Remote Astra" {
 				t.Fatalf("remote Astra metadata was not preserved: %#v", model)
@@ -162,7 +206,7 @@ func TestRefreshCodexClientModelsKeepsPinnedAstraOnValidRemoteCatalog(t *testing
 	}
 	found := false
 	for _, model := range payload.Models {
-		if model["slug"] == locallyPinnedCodexClientModelSlug {
+		if model["slug"] == codexBuiltinGPT6AstraModelID {
 			found = true
 			break
 		}

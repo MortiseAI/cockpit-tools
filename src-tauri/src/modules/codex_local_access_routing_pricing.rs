@@ -1175,6 +1175,18 @@ const fn codex_price(
 const CODEX_LOCAL_ACCESS_PRICE_BOOK: &[CodexLocalAccessPriceBookEntry] = &[
     // Keep in sync with supported Codex models and public OpenAI rates.
     CodexLocalAccessPriceBookEntry {
+        model_id: "gpt-6-sol",
+        session_long_context: true,
+        standard: codex_price(2.0, 0.2, 10.0),
+        priority: Some(codex_price(4.0, 0.4, 20.0)),
+    },
+    CodexLocalAccessPriceBookEntry {
+        model_id: "gpt-6-luna",
+        session_long_context: true,
+        standard: codex_price(0.1, 0.01, 0.5),
+        priority: Some(codex_price(0.2, 0.02, 1.0)),
+    },
+    CodexLocalAccessPriceBookEntry {
         model_id: "gpt-6-astra",
         session_long_context: true,
         standard: codex_price(10.0, 1.0, 50.0),
@@ -1381,6 +1393,11 @@ fn normalize_known_openai_codex_model(model: &str) -> Option<String> {
     if normalized.contains("gpt-6-astra") {
         return Some("gpt-6-astra".to_string());
     }
+    for model in ["gpt-6-sol", "gpt-6-luna"] {
+        if normalized.contains(model) {
+            return Some(model.to_string());
+        }
+    }
     if normalized.contains("gpt-5.6-sol") {
         return Some("gpt-5.6-sol".to_string());
     }
@@ -1485,6 +1502,8 @@ fn is_openai_session_long_context_model(model_id: &str) -> bool {
         "gpt-5.4"
             | "gpt-5.5"
             | "gpt-6-astra"
+            | "gpt-6-sol"
+            | "gpt-6-luna"
             | "gpt-5.6"
             | "gpt-5.6-sol"
             | "gpt-5.6-terra"
@@ -1927,9 +1946,18 @@ fn calculate_usage_cost_usd(
             let cached_input_price = pricing
                 .cached_input_usd_per_million
                 .unwrap_or(pricing.input_usd_per_million);
+            // GPT-6 Sol/Luna cache writes cost 1.25x input, including long/Fast
+            // rates already selected above. Other providers keep their policy.
+            let cache_write_multiplier =
+                match normalize_known_openai_codex_model(&pricing.model_id).as_deref() {
+                    Some("gpt-6-sol" | "gpt-6-luna") => 1.25,
+                    _ => 1.0,
+                };
             let cost = (breakdown.input.uncached_tokens as f64 * pricing.input_usd_per_million
                 + breakdown.input.cache_read_tokens as f64 * cached_input_price
-                + breakdown.input.cache_write_tokens as f64 * pricing.input_usd_per_million
+                + breakdown.input.cache_write_tokens as f64
+                    * pricing.input_usd_per_million
+                    * cache_write_multiplier
                 + breakdown.output.total_tokens as f64 * pricing.output_usd_per_million)
                 / 1_000_000.0;
             return if cost.is_finite() && cost > 0.0 {

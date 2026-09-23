@@ -2352,3 +2352,31 @@ supports_websockets = false
         assert!(snapshot.events.is_empty());
         assert_eq!(stats.events.len(), 1);
     }
+
+    #[test]
+    fn gpt_6_sol_luna_pricing_handles_aliases_long_context_fast_and_cache_writes() {
+        for (id, input, cache, output) in [("gpt-6-sol", 2.0, 0.2, 10.0), ("gpt-6-luna", 0.1, 0.01, 0.5)] {
+            for (tokens, long) in [(272_000, false), (272_001, true)] {
+                for (tier, multiplier) in [("standard", 1.0), ("priority", 2.0), ("fast", 2.0), ("flex", 0.5)] {
+                    let usage = UsageCapture { input_tokens: tokens, ..Default::default() };
+                    let alias = format!("openai/{id}-2026-09-22");
+                    let price = resolve_effective_model_pricing(None, Some(&alias), Some(&usage), Some(tier)).unwrap();
+                    assert_eq!(price.input_usd_per_million, input * multiplier * if long { 2.0 } else { 1.0 });
+                    assert_eq!(price.cached_input_usd_per_million, Some(cache * multiplier * if long { 2.0 } else { 1.0 }));
+                    assert_eq!(price.output_usd_per_million, output * multiplier * if long { 1.5 } else { 1.0 });
+                }
+            }
+            let mut breakdown = CodexTokenBreakdown::default();
+            breakdown.schema_version = 2;
+            breakdown.quality = "complete".into();
+            breakdown.input.total_tokens = 200_000;
+            breakdown.input.uncached_tokens = 50_000;
+            breakdown.input.cache_read_tokens = 50_000;
+            breakdown.input.cache_write_tokens = 100_000;
+            breakdown.total_tokens = 200_000;
+            let usage = UsageCapture { input_tokens: 200_000, total_tokens: 200_000, token_breakdown: Some(breakdown), ..Default::default() };
+            let price = resolve_effective_model_pricing(None, Some(id), Some(&usage), None).unwrap();
+            let expected = (50_000.0 * input + 50_000.0 * cache + 100_000.0 * input * 1.25) / 1_000_000.0;
+            assert!((calculate_usage_cost_usd(Some(&usage), Some(&price)) - expected).abs() < 1e-12);
+        }
+    }

@@ -18,6 +18,8 @@ const MODEL_DISPLAY_NAMES: Record<string, string> = {
   'gemini-3-pro-image': 'Gemini 3 Pro Image',
   'gpt-oss-120b-medium': 'GPT-OSS 120B (Medium)',
   'gpt-6-astra': '6 Astra',
+  'gpt-6-sol': '6 Sol',
+  'gpt-6-luna': '6 Luna',
   // Gemini 2.5 系列
   'gemini-2.5-flash': 'Gemini 2.5 Flash',
   'gemini-2.5-flash-lite': 'Gemini 2.5 Flash Lite',

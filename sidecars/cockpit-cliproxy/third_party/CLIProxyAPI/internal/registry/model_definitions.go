@@ -13,6 +13,8 @@ const (
 	codexBuiltinImage25SunburstModelID = "gpt-image-2.5-sunburst"
 	codexBuiltinImageModelID           = "gpt-image-2.5"
 	codexBuiltinGPT6AstraModelID       = "gpt-6-astra"
+	codexBuiltinGPT6SolModelID         = "gpt-6-sol"
+	codexBuiltinGPT6LunaModelID        = "gpt-6-luna"
 	xaiBuiltinImageModelID             = "grok-imagine-image"
 	xaiBuiltinImageQualityModelID      = "grok-imagine-image-quality"
 	xaiBuiltinImage20ModelID           = "grok-imagine-image-2.0"
@@ -58,7 +60,20 @@ func GetAIStudioModels() []*ModelInfo {
 
 // GetCodexFreeModels returns model definitions for the Codex free plan tier.
 func GetCodexFreeModels() []*ModelInfo {
-	return WithCodexBuiltins(cloneModelInfos(getModels().CodexFree))
+	return upsertModelInfos(WithCodexBuiltins(cloneModelInfos(getModels().CodexFree)), codexBuiltinGPT6ModelInfo(codexBuiltinGPT6LunaModelID))
+}
+
+// Go has the existing team catalog, but GPT-6 Sol is only available on higher plans.
+func GetCodexGoModels() []*ModelInfo {
+	models := GetCodexTeamModels()
+	filtered := models[:0]
+	for _, model := range models {
+		if model != nil && model.ID == codexBuiltinGPT6SolModelID {
+			continue
+		}
+		filtered = append(filtered, model)
+	}
+	return filtered
 }
 
 // GetCodexTeamModels returns model definitions for the Codex team plan tier.
@@ -133,7 +148,9 @@ func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
 // remote static model catalog is older than the shipped client catalog.
 func withCodexPaidBuiltins(models []*ModelInfo) []*ModelInfo {
 	return prioritizeModelInfoByID(
-		upsertModelInfos(WithCodexBuiltins(models), codexBuiltinGPT6AstraModelInfo()),
+		upsertModelInfos(WithCodexBuiltins(models), codexBuiltinGPT6AstraModelInfo(),
+			codexBuiltinGPT6ModelInfo(codexBuiltinGPT6SolModelID),
+			codexBuiltinGPT6ModelInfo(codexBuiltinGPT6LunaModelID)),
 		codexBuiltinGPT6AstraModelID,
 	)
 }
@@ -228,6 +245,26 @@ func codexBuiltinGPT6AstraModelInfo() *ModelInfo {
 		SupportedInputModalities:  []string{"text", "image"},
 		SupportedOutputModalities: []string{"text"},
 		Thinking:                  &ThinkingSupport{Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	}
+}
+
+// Registry limits describe the public model; Codex client context defaults live
+// in codex_client_models.json. Reasoning levels here are for the Codex executor.
+func codexBuiltinGPT6ModelInfo(id string) *ModelInfo {
+	name, description := "6 Luna", "Our most efficient model for focused, high-volume tasks."
+	levels := []string{"low", "medium", "high", "xhigh", "max"}
+	if id == codexBuiltinGPT6SolModelID {
+		name, description = "6 Sol", "Built to power complex coding and agentic workflows."
+		levels = append(levels, "ultra")
+	}
+	return &ModelInfo{
+		ID: id, Object: "model", Created: 1790035200, // 2026-09-22
+		OwnedBy: "openai", Type: "openai", DisplayName: name, Version: id,
+		Description: description, ContextLength: 1050000, MaxCompletionTokens: 128000,
+		SupportedParameters:       []string{"tools"},
+		SupportedInputModalities:  []string{"text", "image"},
+		SupportedOutputModalities: []string{"text"},
+		Thinking:                  &ThinkingSupport{Levels: levels},
 	}
 }
 
@@ -454,6 +491,11 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 	}
 	if strings.EqualFold(strings.TrimSpace(modelID), codexBuiltinGPT6AstraModelID) {
 		return cloneModelInfo(codexBuiltinGPT6AstraModelInfo())
+	}
+	for _, id := range []string{codexBuiltinGPT6SolModelID, codexBuiltinGPT6LunaModelID} {
+		if strings.EqualFold(strings.TrimSpace(modelID), id) {
+			return codexBuiltinGPT6ModelInfo(id)
+		}
 	}
 
 	return nil

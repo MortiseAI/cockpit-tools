@@ -64,7 +64,10 @@ fn emit_sidecar_rerun_inputs(path: &Path) {
     let should_track = matches!(
         path.file_name().and_then(|name| name.to_str()),
         Some("go.mod") | Some("go.sum")
-    ) || path.extension().and_then(|extension| extension.to_str()) == Some("go");
+    ) || matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("go" | "json")
+    );
 
     if should_track {
         println!("cargo:rerun-if-changed={}", path.display());

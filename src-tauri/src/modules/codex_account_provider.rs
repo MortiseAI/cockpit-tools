@@ -74,6 +74,8 @@ const CODEX_EXPERIMENTAL_MODEL_USER_CUSTOMIZED_FILE: &str =
 const CODEX_EXPERIMENTAL_MODEL_PREVIOUS_CATALOG_FILE: &str =
     ".cockpit-experimental-model-catalog-previous.json";
 pub(crate) const GPT_6_ASTRA_MODEL_ID: &str = "gpt-6-astra";
+const GPT_6_SOL_LUNA_MODEL_IDS: &[&str] = &["gpt-6-sol", "gpt-6-luna"];
+const GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID: &str = "add-gpt-6-sol-luna-models";
 const DEFAULT_CODEX_MODEL_ID: &str = "gpt-5.6-sol";
 const GPT_6_ASTRA_MODEL_CATALOG_MIGRATION_ID: &str = "add-gpt-6-astra-model";
 const PRE_ASTRA_SHIPPED_VISIBLE_CODEX_MODEL_IDS: &[&str] = &[
@@ -87,9 +89,12 @@ const PRE_ASTRA_SHIPPED_VISIBLE_CODEX_MODEL_IDS: &[&str] = &[
     "gpt-5.3-codex-spark",
 ];
 const EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION: u32 = 4;
-const CODEX_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max", "ultra"];
+const CODEX_REASONING_EFFORTS: &[&str] =
+    &["none", "low", "medium", "high", "xhigh", "max", "ultra"];
 const SHIPPED_VISIBLE_CODEX_MODEL_IDS: &[&str] = &[
     GPT_6_ASTRA_MODEL_ID,
+    "gpt-6-sol",
+    "gpt-6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",

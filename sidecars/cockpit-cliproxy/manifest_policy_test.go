@@ -3528,3 +3528,45 @@ func TestCockpitSelectorSkipsExhaustedQuotaForRegularModels(t *testing.T) {
 		t.Fatalf("reserve model should keep its independent quota path: selected=%v err=%v", selected, err)
 	}
 }
+
+func TestGPT6SolLunaCatalogAndRouting(t *testing.T) {
+	for _, id := range []string{"gpt-6-sol", "gpt-6-luna"} {
+		t.Run(id, func(t *testing.T) {
+			spec := mixedRoutingAPIKey(&providerGatewaySpec{UpstreamModels: []string{id}, WireAPI: "responses"})
+			catalog := buildCodexClientModelsResponse([]string{id, "cpa/" + id}, spec, nil, nil)
+			models := catalog["models"].([]map[string]any)
+			if len(models) != 2 || models[1]["slug"] != "cpa/"+id {
+				t.Fatalf("wrong models: %#v", models)
+			}
+			if intFromAny(models[0]["context_window"]) != 272000 || intFromAny(models[0]["max_context_window"]) != 872000 {
+				t.Fatal("lost subscription context limits")
+			}
+			if models[0]["multi_agent_version"] != "v2" || models[0]["use_responses_lite"] != true {
+				t.Fatal("lost protocol capabilities")
+			}
+			if intFromAny(models[1]["context_window"]) != 1050000 {
+				t.Fatal("wrong API context limit")
+			}
+			levels := models[1]["supported_reasoning_levels"].([]any)
+			if len(levels) != 6 || levels[0].(map[string]any)["effort"] != "none" || levels[5].(map[string]any)["effort"] != "max" {
+				t.Fatal("wrong API reasoning levels")
+			}
+			gateway, upstream, status := resolveModelRouting(spec, "cpa/"+id)
+			if gateway == nil || upstream != id || status != "matched" {
+				t.Fatal("lost routing identity")
+			}
+			undeclared := &apiKeySpec{ProviderGateway: &providerGatewaySpec{UpstreamModels: []string{"deepseek-flash"}}}
+			if got := canonicalModelForClientModel(&manifest{}, undeclared, id); got != "" {
+				t.Fatalf("undeclared GPT model silently mapped to %q", got)
+			}
+			if ollamaContextLength(id) != 1050000 || ollamaDefaultReasoningEffort(id) != "medium" {
+				t.Fatal("wrong compatibility metadata")
+			}
+			registered := manifestRegistryModels(&manifest{ModelIDs: []string{id}})
+			info := findModelInfoForTest(registered, id)
+			if info == nil || info.Thinking == nil || info.UserDefined {
+				t.Fatalf("lost static registry capabilities: %#v", info)
+			}
+		})
+	}
+}

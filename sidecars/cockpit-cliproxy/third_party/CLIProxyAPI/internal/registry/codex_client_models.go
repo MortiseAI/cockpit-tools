@@ -19,7 +19,9 @@ type codexClientModelsPayload struct {
 	Models []map[string]any `json:"models"`
 }
 
-const locallyPinnedCodexClientModelSlug = "gpt-6-astra"
+var locallyPinnedCodexClientModelSlugs = []string{
+	codexBuiltinGPT6AstraModelID, codexBuiltinGPT6SolModelID, codexBuiltinGPT6LunaModelID,
+}
 
 // mergeLocallyPinnedCodexClientModels keeps a shipped model available when a
 // remote registry has not learned it yet. Remote metadata wins once present.
@@ -36,28 +38,42 @@ func mergeLocallyPinnedCodexClientModels(data []byte) ([]byte, error) {
 	if err := json.Unmarshal(modelsRaw, &models); err != nil {
 		return nil, fmt.Errorf("decode remote Codex client models: %w", err)
 	}
-	for _, model := range models {
-		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(model["slug"])), locallyPinnedCodexClientModelSlug) {
-			return append([]byte(nil), data...), nil
-		}
-	}
-
 	var embedded codexClientModelsPayload
 	if err := json.Unmarshal(embeddedCodexClientModelsJSON, &embedded); err != nil {
 		return nil, fmt.Errorf("decode embedded Codex client model catalog: %w", err)
 	}
-	for _, model := range embedded.Models {
-		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(model["slug"])), locallyPinnedCodexClientModelSlug) {
-			models = append(models, model)
-			mergedModels, err := json.Marshal(models)
-			if err != nil {
-				return nil, fmt.Errorf("encode merged Codex client models: %w", err)
+	changed := false
+	for _, slug := range locallyPinnedCodexClientModelSlugs {
+		found := false
+		for _, model := range models {
+			if strings.EqualFold(strings.TrimSpace(fmt.Sprint(model["slug"])), slug) {
+				found = true
+				break
 			}
-			document["models"] = mergedModels
-			return json.Marshal(document)
+		}
+		if found {
+			continue
+		}
+		for _, model := range embedded.Models {
+			if strings.EqualFold(strings.TrimSpace(fmt.Sprint(model["slug"])), slug) {
+				models = append(models, model)
+				found, changed = true, true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("embedded Codex client catalog is missing locally pinned model %q", slug)
 		}
 	}
-	return nil, fmt.Errorf("embedded Codex client catalog is missing locally pinned model %q", locallyPinnedCodexClientModelSlug)
+	if !changed {
+		return append([]byte(nil), data...), nil
+	}
+	mergedModels, err := json.Marshal(models)
+	if err != nil {
+		return nil, fmt.Errorf("encode merged Codex client models: %w", err)
+	}
+	document["models"] = mergedModels
+	return json.Marshal(document)
 }
 
 type codexClientModelsStore struct {

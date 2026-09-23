@@ -2,6 +2,45 @@ package registry
 
 import "testing"
 
+func TestGPT6SolLunaPlanAndReasoningCapabilities(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		models []*ModelInfo
+		sol    bool
+	}{
+		{"free", GetCodexFreeModels(), false}, {"go", GetCodexGoModels(), false},
+		{"plus", GetCodexPlusModels(), true}, {"team", GetCodexTeamModels(), true}, {"pro", GetCodexProModels(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			found := map[string]*ModelInfo{}
+			for _, model := range tc.models {
+				if model != nil {
+					found[model.ID] = model
+				}
+			}
+			if (found["gpt-6-sol"] != nil) != tc.sol {
+				t.Fatal("incorrect Sol plan availability")
+			}
+			for _, id := range []string{"gpt-6-sol", "gpt-6-luna"} {
+				if id == "gpt-6-sol" && !tc.sol {
+					continue
+				}
+				model := found[id]
+				if model == nil || model.ContextLength != 1050000 || model.MaxCompletionTokens != 128000 {
+					t.Fatalf("wrong model limits: %#v", model)
+				}
+				last := "max"
+				if id == "gpt-6-sol" {
+					last = "ultra"
+				}
+				if model.Thinking == nil || model.Thinking.Levels[len(model.Thinking.Levels)-1] != last {
+					t.Fatalf("wrong reasoning for %s", id)
+				}
+			}
+		})
+	}
+}
+
 func TestGetStaticModelDefinitionsByChannelSupportsGeminiInteractions(t *testing.T) {
 	models := GetStaticModelDefinitionsByChannel("gemini-interactions")
 	if len(models) == 0 {

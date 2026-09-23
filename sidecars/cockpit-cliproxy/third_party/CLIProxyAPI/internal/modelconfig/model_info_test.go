@@ -59,3 +59,22 @@ func TestResolveModelInfoUnknownModelKeepsMissingCapability(t *testing.T) {
 		t.Fatal("unknown configured model must use its exact bound capability")
 	}
 }
+
+func TestGPT6APIKeyCapabilitiesKeepNoneAndExcludeCodexUltra(t *testing.T) {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+		for _, provider := range []string{"openai", "openai-compatibility", "codex"} {
+			info := ResolveModelInfo(model, provider, nil)
+			if info.Thinking == nil || !info.Thinking.ZeroAllowed {
+				t.Fatalf("%s/%s must preserve none", provider, model)
+			}
+			levels := info.Thinking.Levels
+			if len(levels) != 6 || levels[0] != "none" || levels[5] != "max" {
+				t.Fatalf("unexpected API efforts: %v", levels)
+			}
+		}
+		custom := ResolveModelInfo(model, "openai", &registry.ThinkingSupport{Levels: []string{"high"}})
+		if len(custom.Thinking.Levels) != 1 || custom.Thinking.Levels[0] != "high" {
+			t.Fatal("explicit provider capabilities must win")
+		}
+	}
+}

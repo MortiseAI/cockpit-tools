@@ -2025,6 +2025,15 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
     }
 
     #[test]
+    fn provider_gateway_model_slots_keep_identity_for_gpt_6_sol_luna() {
+        let slots = provider_gateway_model_slots(&["custom".into(), "gpt-6-sol".into(), "gpt-6-luna".into()]);
+        for id in ["gpt-6-sol", "gpt-6-luna"] {
+            assert!(slots.iter().any(|slot| slot.client_model == id && slot.upstream_model == id));
+        }
+        assert!(slots.iter().all(|slot| slot.upstream_model != "custom" || !slot.client_model.starts_with("gpt-6-")));
+    }
+
+    #[test]
     fn responses_sync_catalog_with_custom_models_requires_instance_gateway_but_remains_local_access_eligible(
     ) {
         let mut account = CodexAccount::new_api_key(

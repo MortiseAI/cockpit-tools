@@ -1689,3 +1689,80 @@ wire_api = "responses"
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
     }
+
+    #[test]
+    fn gpt_6_sol_luna_catalog_upgrade_preserves_customization_and_defaults() {
+        for (customized, already_migrated) in [(false, false), (true, false), (false, true)] {
+            let base_dir = make_temp_dir("gpt-6-sol-luna-upgrade");
+            let config_text = "model = \"gpt-5.6-luna\"\nmodel_catalog_json = \"cockpit-model-catalog.json\"\n";
+            fs::write(base_dir.join("config.toml"), config_text).unwrap();
+            fs::write(super::experimental_model_policy_path(&base_dir), "enabled\n").unwrap();
+            let mut definitions = super::default_experimental_model_definitions(&base_dir);
+            definitions.retain(|model| !super::GPT_6_SOL_LUNA_MODEL_IDS.contains(&model.model_id.as_str()));
+            let astra = definitions.iter_mut().find(|model| model.model_id == "gpt-6-astra").unwrap();
+            astra.context_window = Some(516_000);
+            astra.auto_compact_token_limit = Some(460_000);
+            astra.reasoning_efforts = Some(vec!["high".into()]);
+            let ids = definitions.iter().map(|model| model.model_id.clone()).collect::<Vec<_>>();
+            let catalog = crate::modules::codex_protocol::build_codex_client_models_response(&ids);
+            let catalog_path = base_dir.join(super::CODEX_MANAGED_MODEL_CATALOG_FILE);
+            fs::write(&catalog_path, serde_json::to_string(&catalog).unwrap()).unwrap();
+            let mut migrations = vec![super::GPT_6_ASTRA_MODEL_CATALOG_MIGRATION_ID];
+            if already_migrated { migrations.push(super::GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID); }
+            fs::write(super::experimental_model_config_path(&base_dir), serde_json::json!({
+                "version": 4, "models": definitions, "default_model_id": "gpt-5.6-luna", "migrations": migrations,
+            }).to_string()).unwrap();
+            if customized {
+                fs::write(super::user_customized_model_catalog_marker_path(&base_dir), "customized\n").unwrap();
+            }
+            for _ in 0..2 {
+                super::rebuild_managed_catalog_from_existing(&catalog_path).unwrap();
+                let catalog: serde_json::Value = serde_json::from_str(&fs::read_to_string(&catalog_path).unwrap()).unwrap();
+                let models = catalog["models"].as_array().unwrap();
+                for id in super::GPT_6_SOL_LUNA_MODEL_IDS {
+                    assert_eq!(models.iter().filter(|model| model["slug"] == *id).count(), usize::from(!customized && !already_migrated));
+                }
+                let astra = models.iter().find(|model| model["slug"] == "gpt-6-astra").unwrap();
+                assert_eq!(astra["context_window"], 516_000);
+                assert_eq!(astra["auto_compact_token_limit"], 460_000);
+                assert_eq!(astra["default_reasoning_level"], "high");
+                assert_eq!(fs::read_to_string(base_dir.join("config.toml")).unwrap(), config_text);
+                let cache = super::read_experimental_model_catalog_config(&base_dir).unwrap();
+                assert_eq!(cache.default_model_id.as_deref(), Some("gpt-5.6-luna"));
+                assert!(cache.migrations.iter().any(|id| id == super::GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID));
+            }
+            fs::remove_dir_all(&base_dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn gpt_6_sol_luna_catalog_validates_efforts_for_each_access_mode() {
+        for (id, effort, valid) in [
+            ("gpt-6-sol", "ultra", true), ("gpt-6-luna", "ultra", false),
+            ("gpt-6-sol", "none", false), ("api/gpt-6-sol", "none", true),
+            ("api/gpt-6-luna", "none", true), ("api/gpt-6-sol", "ultra", false),
+        ] {
+            let result = super::normalize_experimental_model_definitions(vec![super::CodexExperimentalModelDefinition {
+                model_id: id.into(), display_name: id.into(), reasoning_efforts: Some(vec![effort.into()]),
+                context_window: None, auto_compact_token_limit: None,
+            }]);
+            assert_eq!(result.is_ok(), valid, "{id}/{effort}");
+        }
+    }
+
+    #[test]
+    fn gpt_6_sol_luna_legacy_invalid_effort_does_not_reset_custom_catalog() {
+        let base_dir = make_temp_dir("gpt-6-luna-legacy-effort");
+        fs::write(super::user_customized_model_catalog_marker_path(&base_dir), "customized\n").unwrap();
+        fs::write(super::experimental_model_config_path(&base_dir), serde_json::json!({
+            "version": 4, "models": [{"model_id": "gpt-6-luna", "display_name": "My Luna", "reasoning_efforts": ["ultra"]}],
+            "default_model_id": "gpt-6-luna",
+            "migrations": [super::GPT_6_ASTRA_MODEL_CATALOG_MIGRATION_ID],
+        }).to_string()).unwrap();
+        let models = super::read_experimental_model_definitions(&base_dir);
+        assert_eq!(models.len(), 2); // The user's model and the existing Reserve fallback.
+        assert_eq!(models[0].model_id, "gpt-6-luna");
+        assert_eq!(models[0].display_name, "My Luna");
+        assert_eq!(models[0].reasoning_efforts, None);
+        fs::remove_dir_all(&base_dir).unwrap();
+    }

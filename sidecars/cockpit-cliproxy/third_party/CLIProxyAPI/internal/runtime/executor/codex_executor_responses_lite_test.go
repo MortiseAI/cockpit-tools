@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -215,6 +216,12 @@ func TestNormalizeCodexResponsesLiteRequestDoesNotDuplicateNestedToolsAtTopLevel
 }
 
 func TestCodexExecutorExecutePreservesCollaborationNamespaceInResponsesLiteAdditionalTools(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-sol", "gpt-6-sol", "gpt-6-luna"} {
+		t.Run(model, func(t *testing.T) { testCodexExecutorCollaborationNamespace(t, model) })
+	}
+}
+
+func testCodexExecutorCollaborationNamespace(t *testing.T, model string) {
 	type capturedRequest struct {
 		header http.Header
 		body   []byte
@@ -259,8 +266,8 @@ func TestCodexExecutorExecutePreservesCollaborationNamespaceInResponsesLiteAddit
 	}`)
 
 	_, err := executor.Execute(ctx, auth, cliproxyexecutor.Request{
-		Model:   "gpt-5.6-sol",
-		Payload: payload,
+		Model:   model,
+		Payload: []byte(strings.ReplaceAll(string(payload), "gpt-5.6-sol", model)),
 	}, cliproxyexecutor.Options{
 		SourceFormat: sdktranslator.FromString("openai-response"),
 		Headers:      http.Header{codexResponsesLiteHeaderName: []string{"true"}},
@@ -270,6 +277,9 @@ func TestCodexExecutorExecutePreservesCollaborationNamespaceInResponsesLiteAddit
 	}
 
 	got := <-captured
+	if gotModel := gjson.GetBytes(got.body, "model").String(); gotModel != model {
+		t.Fatalf("upstream model = %q, want %q", gotModel, model)
+	}
 	if !codexResponsesLiteEnabled(got.header) {
 		t.Fatalf("upstream request lost Responses Lite header: %v", got.header)
 	}

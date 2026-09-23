@@ -28,6 +28,7 @@ const CODEX_WAKEUP_TEST_CANCELLED_MESSAGE: &str = "Codex 唤醒测试已取消";
 const GPT_5_6_MODEL_PRESETS_MIGRATION_ID: &str = "add-gpt-5-6-model-presets";
 const GPT_5_5_MODEL_PRESET_MIGRATION_ID: &str = "add-gpt-5-5-model-preset";
 const GPT_6_ASTRA_MODEL_PRESET_MIGRATION_ID: &str = "add-gpt-6-astra-model-preset";
+const GPT_6_SOL_LUNA_MODEL_PRESET_MIGRATION_ID: &str = "add-gpt-6-sol-luna-model-presets";
 const PRUNE_LEGACY_MODEL_PRESETS_MIGRATION_ID: &str =
     "prune-legacy-codex-model-presets-before-gpt-5-4";
 const PRUNE_PRE_5_5_MODEL_PRESETS_MIGRATION_ID: &str = "prune-pre-5-5-model-presets";
@@ -341,6 +342,7 @@ impl Default for CodexWakeupState {
                 GPT_5_6_MODEL_PRESETS_MIGRATION_ID.to_string(),
                 GPT_5_5_MODEL_PRESET_MIGRATION_ID.to_string(),
                 GPT_6_ASTRA_MODEL_PRESET_MIGRATION_ID.to_string(),
+                GPT_6_SOL_LUNA_MODEL_PRESET_MIGRATION_ID.to_string(),
                 PRUNE_LEGACY_MODEL_PRESETS_MIGRATION_ID.to_string(),
             ],
         }
@@ -457,6 +459,8 @@ fn default_reasoning_efforts_for_model(model: &str) -> Vec<String> {
             REASONING_EFFORT_HIGH.to_string(),
         ]
     } else if model.trim().eq_ignore_ascii_case("gpt-6-astra")
+        || model.trim().eq_ignore_ascii_case("gpt-6-sol")
+        || model.trim().eq_ignore_ascii_case("gpt-6-luna")
         || model.trim().starts_with("gpt-5.6-")
     {
         supported_reasoning_efforts()
@@ -474,6 +478,8 @@ fn default_reasoning_efforts_for_model(model: &str) -> Vec<String> {
 fn default_model_presets() -> Vec<CodexWakeupModelPreset> {
     let items = [
         ("preset-gpt-6-astra", "6 Astra", "gpt-6-astra"),
+        ("preset-gpt-6-sol", "6 Sol", "gpt-6-sol"),
+        ("preset-gpt-6-luna", "6 Luna", "gpt-6-luna"),
         ("preset-gpt-5-6-sol", "GPT-5.6 Sol", "gpt-5.6-sol"),
         ("preset-gpt-5-6-terra", "GPT-5.6 Terra", "gpt-5.6-terra"),
         ("preset-gpt-5-6-luna", "GPT-5.6 Luna", "gpt-5.6-luna"),
@@ -625,6 +631,36 @@ fn ensure_gpt_6_astra_model_preset(state: &mut CodexWakeupState) -> bool {
     changed
 }
 
+fn ensure_gpt_6_sol_luna_model_presets(state: &mut CodexWakeupState) -> bool {
+    if state
+        .model_preset_migrations
+        .iter()
+        .any(|id| id == GPT_6_SOL_LUNA_MODEL_PRESET_MIGRATION_ID)
+    {
+        return false;
+    }
+    let additions = default_model_presets()
+        .into_iter()
+        .filter(|preset| matches!(preset.model.as_str(), "gpt-6-sol" | "gpt-6-luna"))
+        .filter(|preset| {
+            !state
+                .model_presets
+                .iter()
+                .any(|existing| existing.model.eq_ignore_ascii_case(&preset.model))
+        })
+        .collect::<Vec<_>>();
+    let insert_at = state
+        .model_presets
+        .iter()
+        .position(|preset| preset.model == "gpt-6-astra")
+        .map_or(0, |index| index + 1);
+    state.model_presets.splice(insert_at..insert_at, additions);
+    state
+        .model_preset_migrations
+        .push(GPT_6_SOL_LUNA_MODEL_PRESET_MIGRATION_ID.to_string());
+    true
+}
+
 fn is_legacy_codex_model_preset(preset: &CodexWakeupModelPreset) -> bool {
     let id = preset.id.trim();
     let model = preset.model.trim();
@@ -726,6 +762,7 @@ fn apply_model_preset_migrations(state: &mut CodexWakeupState) -> bool {
     changed |= ensure_gpt_5_6_model_presets(state);
     changed |= ensure_gpt_5_5_model_preset(state);
     changed |= ensure_gpt_6_astra_model_preset(state);
+    changed |= ensure_gpt_6_sol_luna_model_presets(state);
     state.model_preset_migrations.sort();
     state.model_preset_migrations.dedup();
     changed
@@ -2571,6 +2608,8 @@ mod tests {
             models,
             vec![
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
@@ -2585,6 +2624,48 @@ mod tests {
             astra.allowed_reasoning_efforts,
             vec!["low", "medium", "high", "xhigh", "max"]
         );
+    }
+
+    #[test]
+    fn gpt_6_sol_luna_wakeup_migration_preserves_custom_presets_and_removals() {
+        use super::{
+            ensure_gpt_6_sol_luna_model_presets, GPT_6_SOL_LUNA_MODEL_PRESET_MIGRATION_ID,
+        };
+        let mut state = CodexWakeupState::default();
+        state
+            .model_preset_migrations
+            .retain(|id| id != GPT_6_SOL_LUNA_MODEL_PRESET_MIGRATION_ID);
+        state
+            .model_presets
+            .retain(|preset| preset.model != "gpt-6-luna");
+        let sol = state
+            .model_presets
+            .iter_mut()
+            .find(|preset| preset.model == "gpt-6-sol")
+            .unwrap();
+        sol.name = "Custom Sol".into();
+        sol.allowed_reasoning_efforts = vec!["high".into()];
+        sol.default_reasoning_effort = "high".into();
+        assert!(ensure_gpt_6_sol_luna_model_presets(&mut state));
+        let sol = state
+            .model_presets
+            .iter()
+            .find(|preset| preset.model == "gpt-6-sol")
+            .unwrap();
+        assert_eq!(sol.name, "Custom Sol");
+        assert_eq!(sol.allowed_reasoning_efforts, vec!["high"]);
+        assert!(state
+            .model_presets
+            .iter()
+            .any(|preset| preset.model == "gpt-6-luna"));
+        state
+            .model_presets
+            .retain(|preset| preset.model != "gpt-6-luna");
+        assert!(!ensure_gpt_6_sol_luna_model_presets(&mut state));
+        assert!(!state
+            .model_presets
+            .iter()
+            .any(|preset| preset.model == "gpt-6-luna"));
     }
 
     #[test]
@@ -2619,6 +2700,8 @@ mod tests {
             models,
             vec![
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
@@ -2694,6 +2777,8 @@ mod tests {
             models,
             vec![
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
                 "gpt-5.6-sol",
