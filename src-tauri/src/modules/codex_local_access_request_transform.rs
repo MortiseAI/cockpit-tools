@@ -1,6 +1,5 @@
 // Codex Local Access：Image handling and Chat Completions/Responses request transformation。
 // 通过 include! 保持原 modules::codex_local_access 作用域和私有调用关系。
-#[cfg(test)]
 fn remove_image_generation_capabilities_from_object(object: &mut Map<String, Value>) -> bool {
     let mut changed = false;
     if let Some(Value::Array(tools)) = object.get_mut("tools") {
@@ -42,7 +41,6 @@ fn remove_image_generation_capabilities_from_object(object: &mut Map<String, Val
     changed
 }
 
-#[cfg(test)]
 fn image_generation_tools_allowed(
     mode: CodexLocalAccessImageGenerationMode,
     request_kind: CodexLocalAccessRequestKind,
@@ -1115,7 +1113,6 @@ fn normalize_recorded_service_tier(value: &str) -> Option<&str> {
 fn normalize_upstream_inject_service_tier(value: &str) -> Option<&'static str> {
     match normalize_proxy_service_tier(value) {
         Some("priority") => Some("priority"),
-        Some("ultrafast") => Some("ultrafast"),
         Some("flex") => Some("flex"),
         _ => None,
     }

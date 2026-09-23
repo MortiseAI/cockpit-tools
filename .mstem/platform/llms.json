@@ -73,6 +73,75 @@
         }
       }
     },
+    "z-codex": {
+      "fast_service_tier": "priority",
+      "protocol": "openai",
+      "baseUrl": "http://192.168.2.16:61100/v1",
+      "apiKey": "agt_codex_w4e4aWK6dTgfGQQNdeYGsLRGqciTJHRq",
+      "authHeader": "bearer",
+      "models": {
+        "gpt-6-astra": {
+          "context": "1M",
+          "vision": true,
+          "thinking": true,
+          "reasoning_effort_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "reasoning_effort": "auto",
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search"
+        },
+        "gpt-5.6-sol": {
+          "context": "1M",
+          "vision": true,
+          "thinking": true,
+          "reasoning_effort_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "reasoning_effort": "auto",
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search"
+        },
+        "gpt-5.6-terra": {
+          "context": "1M",
+          "vision": true,
+          "thinking": true,
+          "reasoning_effort_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "reasoning_effort": "auto",
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search"
+        },
+        "gpt-5.6-luna": {
+          "context": "1M",
+          "vision": true,
+          "thinking": true,
+          "reasoning_effort_levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "reasoning_effort": "auto",
+          "search": "mcp",
+          "search_mcp": "bailian-websearch/bailian_web_search"
+        }
+      }
+    },
     "oai": {
       "protocol": "openai",
       "baseUrl": "https://api.oristrat.com/v1",

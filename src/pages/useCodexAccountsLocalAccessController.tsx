@@ -14,9 +14,14 @@ import { CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT, getCodexPlanBadgeStyle, type Code
 import { invoke } from "@tauri-apps/api/core";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { DEFAULT_CODEX_INSTANCE_ID } from "../components/codex/CodexLaunchPreviewModal";
+import {
+  CODEX_LAUNCH_PREVIEW_API_SERVICE_CARD_KEY,
+  persistCodexLaunchPreviewLastInstanceId,
+} from "../utils/codexLaunchPreviewInstancePreference";
 import type { MultiSelectFilterOption } from "../components/MultiSelectFilterDropdown";
 import type { SingleSelectFilterOption } from "../components/SingleSelectFilterDropdown";
 import type { CodexAccount } from "../types/codex";
+import { CODEX_API_SERVICE_BIND_ID } from "../types/instance";
 import type { CodexLocalAccessLaunchMode, CodexInstanceGatewayView, CodexLocalAccessAddressKind, CodexLocalAccessCustomRoutingRule, CodexLocalAccessImageGenerationPolicy, CodexLocalAccessRoutingStrategy, CodexLocalAccessScope } from "../types/codexLocalAccess";
 import { buildCodexOverviewGroupFilterOptions, buildCodexOverviewSortOptions, buildCodexPlanFilterOptions, createCodexOverviewAccountComparator, createCodexPlanFilterCounts, filterAndSortCodexOverviewAccounts, incrementCodexPlanFilterCount, isCodexOverviewAccountAbnormal, isCodexOverviewAccountSubscriptionExpired, isCodexOverviewAccountZeroQuota } from "../utils/codexAccountOverview";
 import { summarizeCodexQuotaPool } from "../utils/codexQuotaPool";
@@ -49,6 +54,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
   | "groupDeleteConfirm"
   | "groupFilter"
   | "groupQuickAddGroupId"
+  | "launchPreviewInstanceId"
   | "localAccessAddressKind"
   | "localAccessCollection"
   | "localAccessHealthActionBusy"
@@ -125,6 +131,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
     groupDeleteConfirm,
     groupFilter,
     groupQuickAddGroupId,
+    launchPreviewInstanceId,
     localAccessAddressKind,
     localAccessCollection,
     localAccessHealthActionBusy,
@@ -1141,7 +1148,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
           setAddingLocalAccessAccountId(null);
         }
       },
-      [addingLocalAccessAccountId, ensureLocalAccessEntryVisible, setMessage, t],
+      [accounts, addingLocalAccessAccountId, ensureLocalAccessEntryVisible, setMessage, t],
     );
   
     const handleRemoveLocalAccessAccount = useCallback(
@@ -1931,10 +1938,23 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
   
     const handleExecuteLocalAccessLaunchPreview =
       useCallback(async (_launchAfterSwitch: boolean, launchMode: CodexLocalAccessLaunchMode = "serverOnly"): Promise<boolean> => {
-        const activateSelectedTarget = () => handleActivateLocalAccess({
-          instanceId: DEFAULT_CODEX_INSTANCE_ID,
-          launchMode,
-        });
+        persistCodexLaunchPreviewLastInstanceId(
+          CODEX_LAUNCH_PREVIEW_API_SERVICE_CARD_KEY,
+          launchPreviewInstanceId,
+        );
+        const activateSelectedTarget = async () => {
+          if (launchMode !== "serverOnly" && launchPreviewInstanceId !== DEFAULT_CODEX_INSTANCE_ID) {
+            await codexInstanceStore.updateInstance({
+              instanceId: launchPreviewInstanceId,
+              bindAccountId: CODEX_API_SERVICE_BIND_ID,
+              deferBindAccountApplication: true,
+            });
+          }
+          return await handleActivateLocalAccess({
+            instanceId: launchPreviewInstanceId,
+            launchMode,
+          });
+        };
         try {
           const state = await activateSelectedTarget();
           if (!state) {
@@ -1958,7 +1978,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
           }
           throw error;
         }
-      }, [handleActivateLocalAccess, t]);
+      }, [codexInstanceStore, handleActivateLocalAccess, launchPreviewInstanceId, t]);
   
     const handleQuickRefreshLocalAccessQuota = useCallback(async () => {
       if (!localAccessCollection) return;

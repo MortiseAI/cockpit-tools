@@ -43,10 +43,8 @@ use futures_util::{stream, StreamExt};
 use rand::seq::SliceRandom;
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-#[cfg(test)]
 use reqwest::header::USER_AGENT;
 use reqwest::{Client, Proxy, Url};
-#[cfg(test)]
 use reqwest::{Method, StatusCode};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, Error as SqliteError,
@@ -55,10 +53,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
-#[cfg(test)]
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-#[cfg(test)]
 use std::error::Error as StdError;
 use std::fs;
 use std::net::{Ipv4Addr, TcpListener as StdTcpListener};
@@ -75,170 +71,13 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command as TokioCommand};
-use tokio::sync::{oneshot, watch, Mutex as TokioMutex, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{oneshot, watch, Mutex as TokioMutex, Notify};
 use tokio::time::{timeout, Duration};
 
-const INTERNAL_REQUEST_CONCURRENCY: usize = 6;
-static INTERNAL_REQUEST_GATE: std::sync::LazyLock<Arc<Semaphore>> =
-    std::sync::LazyLock::new(|| Arc::new(Semaphore::new(INTERNAL_REQUEST_CONCURRENCY)));
-static INTERNAL_ACCOUNT_GATES: std::sync::LazyLock<Mutex<HashMap<String, Arc<Semaphore>>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-static INTERNAL_API_ACCOUNT_IDS: std::sync::LazyLock<Mutex<HashSet<String>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
-static INTERNAL_API_SERVICE_KEY: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(generate_internal_api_service_key);
-
-fn generate_internal_api_service_key() -> String {
-    let suffix: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(48)
-        .map(char::from)
-        .collect();
-    format!("agt_internal_codex_{}", suffix)
-}
-
-fn internal_api_service_key() -> &'static str {
-    INTERNAL_API_SERVICE_KEY.as_str()
-}
-
-fn register_internal_api_account(account_id: &str) -> Result<(), String> {
-    let account_id = account_id.trim();
-    if account_id.is_empty() {
-        return Err("Codex API 内部请求缺少目标账号".to_string());
-    }
-    let mut accounts = INTERNAL_API_ACCOUNT_IDS
-        .lock()
-        .map_err(|_| "Codex API 内部账号范围不可用".to_string())?;
-    accounts.insert(account_id.to_string());
-    Ok(())
-}
-
-fn internal_api_account_ids() -> Vec<String> {
-    INTERNAL_API_ACCOUNT_IDS
-        .lock()
-        .map(|accounts| accounts.iter().cloned().collect())
-        .unwrap_or_default()
-}
-
-fn internal_api_service_required() -> bool {
-    !internal_api_account_ids().is_empty()
-}
-
-/// API 服务 sidecar 的运行条件：对外入口被启用，或者宿主内部调度仍需要它。
-///
-/// 用户停用 API 服务只关闭对外入口，唤醒与鹈鹕测试等内部请求依然复用同一进程，
-/// 因此生命周期判断必须同时考虑这两个条件。
+/// API 服务 sidecar 的运行条件：只有对外入口被启用时才运行。
 fn local_access_gateway_should_run(collection: &CodexLocalAccessCollection) -> bool {
-    collection.enabled || internal_api_service_required()
+    collection.enabled
 }
-
-/// All host-triggered Codex requests share this scheduler. The account permit
-/// prevents a wakeup and a Pelican run from concurrently refreshing/consuming
-/// the same account while the global permit bounds total background pressure.
-pub(crate) async fn acquire_internal_request_permit(
-    account_id: &str,
-) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit), String> {
-    let global = INTERNAL_REQUEST_GATE
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| "Codex API 内部请求调度器已停止".to_string())?;
-    let account_gate = {
-        let mut gates = INTERNAL_ACCOUNT_GATES
-            .lock()
-            .map_err(|_| "Codex API 账号并发锁不可用".to_string())?;
-        gates
-            .entry(account_id.trim().to_string())
-            .or_insert_with(|| Arc::new(Semaphore::new(1)))
-            .clone()
-    };
-    let account = account_gate
-        .acquire_owned()
-        .await
-        .map_err(|_| "Codex API 账号请求调度器已停止".to_string())?;
-    Ok((global, account))
-}
-
-/// 统一承接宿主内部发起的 Codex 模型请求。
-///
-/// 内部调用也必须经过 API Service sidecar，这样账号选择、Token Authority、账号级并发、
-/// quota cooldown、重试和请求日志都与外部 API 请求使用同一条链路。请求只连接本机，
-/// 不复用上游代理，避免把内部控制头发到公网。
-async fn send_internal_api_service_request(
-    account_id: &str,
-    target: &str,
-    headers: &HashMap<String, String>,
-    body: &[u8],
-    request_timeout: Duration,
-) -> Result<reqwest::Response, String> {
-    let account_id = account_id.trim();
-    if account_id.is_empty() {
-        return Err("Codex API 内部请求缺少目标账号".to_string());
-    }
-    register_internal_api_account(account_id)?;
-    let target = resolve_internal_api_service_target(target)?;
-    ensure_runtime_loaded_without_start().await?;
-    ensure_gateway_matches_runtime().await?;
-
-    let (port, api_key, running) = {
-        let runtime = gateway_runtime().lock().await;
-        let collection = runtime
-            .collection
-            .as_ref()
-            .ok_or_else(|| "API 服务集合尚未创建".to_string())?;
-        (
-            collection.port,
-            internal_api_service_key().to_string(),
-            runtime.running,
-        )
-    };
-    if !running {
-        return Err("API 服务 sidecar 未运行，无法承接内部请求".to_string());
-    }
-    if api_key.is_empty() {
-        return Err("API 服务缺少内部 API Key".to_string());
-    }
-
-    let url = format!(
-        "http://{}:{}{}",
-        CODEX_LOCAL_ACCESS_LOCALHOST_BIND_HOST, port, target
-    );
-    let client = build_localhost_http_client(request_timeout, "API 服务内部请求")?;
-    let mut request = client
-        .post(&url)
-        .header(AUTHORIZATION, format!("Bearer {}", api_key))
-        .header("X-Cockpit-Target-Account-Id", account_id)
-        .header(CONTENT_TYPE, "application/json");
-    for (name, value) in headers {
-        if matches!(
-            name.as_str(),
-            "authorization" | "host" | "content-length" | "connection" | "x-api-key"
-        ) {
-            continue;
-        }
-        request = request.header(name, value);
-    }
-    request
-        .body(body.to_vec())
-        .send()
-        .await
-        .map_err(|error| format!("连接 API 服务 sidecar 失败: {}", error))
-}
-
-/// 宿主内部请求打到 API 服务 sidecar 时使用的路径。
-///
-/// 内部请求的输入仍是客户端路径形态（`/v1/*` 或 `/backend-api/codex/*`），但必须还原成
-/// sidecar 的对外路由路径：sidecar 只注册了 `/v1/*`（例如 `/v1/responses`），
-/// 直接拿上游路径 `/responses` 去请求只会命中 404 `endpoint not supported`，
-/// 唤醒与鹈鹕测试都会因此不可用。
-fn resolve_internal_api_service_target(target: &str) -> Result<String, String> {
-    let upstream_path = resolve_upstream_target(target)?;
-    Ok(match upstream_path.as_str() {
-        "/" => "/v1".to_string(),
-        _ => format!("/v1{}", upstream_path),
-    })
-}
-
 #[cfg(test)]
 use tokio_tungstenite::client_async_tls_with_config;
 #[cfg(test)]
@@ -404,12 +243,10 @@ const GATEWAY_ACCOUNT_REFRESH_CONCURRENCY: usize = 4;
 const GATEWAY_ACCOUNT_REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 const GATEWAY_PREPARATION_CANCELLED: &str = "GATEWAY_PREPARATION_CANCELLED";
 const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(15);
-#[cfg(test)]
 const UPSTREAM_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_OPENAI_RESPONSES_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_CODEX_USER_AGENT: &str =
     "codex-tui/0.153.4 (Mac OS 26.5.0; arm64) iTerm.app/3.6.10 (codex-tui; 0.153.4)";
-#[cfg(test)]
 const DEFAULT_CODEX_ORIGINATOR: &str = "codex-tui";
 const CODEX_RESPONSES_WEBSOCKET_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 #[cfg(test)]
@@ -469,7 +306,6 @@ const RESPONSES_PATH: &str = "/v1/responses";
 #[cfg(test)]
 const RESPONSES_COMPACT_PATH: &str = "/v1/responses/compact";
 const BACKEND_CODEX_PREFIX: &str = "/backend-api/codex";
-#[cfg(test)]
 const BACKEND_CODEX_RESPONSES_PATH: &str = "/backend-api/codex/responses";
 #[cfg(test)]
 const BACKEND_CODEX_RESPONSES_COMPACT_PATH: &str = "/backend-api/codex/responses/compact";
@@ -505,7 +341,6 @@ static PROVIDER_GATEWAY_RUNTIMES: OnceLock<TokioMutex<HashMap<String, ProviderGa
 static PROVIDER_GATEWAY_LIFECYCLE_LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
 #[cfg(test)]
 static GATEWAY_ROUND_ROBIN_CURSOR: AtomicUsize = AtomicUsize::new(0);
-#[cfg(test)]
 static UPSTREAM_HTTP_CLIENT: OnceLock<Mutex<Option<CachedUpstreamHttpClient>>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_REFRESH_FAILURES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_REFRESH_CONTROL: OnceLock<TokioMutex<BoundOauthQuotaRefreshControl>> =
@@ -940,7 +775,6 @@ struct UpstreamProxyDiagnostics {
 }
 
 #[derive(Clone)]
-#[cfg(test)]
 struct CachedUpstreamHttpClient {
     signature: UpstreamHttpClientSignature,
     client: Client,
@@ -1202,7 +1036,6 @@ fn update_gateway_preparation_progress(context: GatewayPreparationContext, compl
     GATEWAY_PREPARATION_COMPLETED.store(completed.min(context.total), Ordering::SeqCst);
 }
 
-#[cfg(test)]
 fn upstream_http_client_cache() -> &'static Mutex<Option<CachedUpstreamHttpClient>> {
     UPSTREAM_HTTP_CLIENT.get_or_init(|| Mutex::new(None))
 }
@@ -1215,7 +1048,6 @@ fn duration_to_millis(duration: Duration) -> u64 {
     duration.as_millis().try_into().unwrap_or(u64::MAX)
 }
 
-#[cfg(test)]
 fn duration_from_millis(value: u64, fallback: Duration) -> Duration {
     if value == 0 {
         return fallback;
@@ -1562,7 +1394,6 @@ fn current_upstream_proxy_diagnostics(
     }
 }
 
-#[cfg(test)]
 fn build_upstream_http_client(signature: &UpstreamHttpClientSignature) -> Result<Client, String> {
     let mut builder = Client::builder().connect_timeout(duration_from_millis(
         signature.connect_timeout_ms,
@@ -1587,7 +1418,6 @@ fn build_localhost_http_client(request_timeout: Duration, label: &str) -> Result
         .map_err(|e| format!("创建{}客户端失败: {}", label, e))
 }
 
-#[cfg(test)]
 fn log_upstream_http_client_signature(signature: &UpstreamHttpClientSignature) {
     match (signature.proxy_source, signature.proxy_url.as_deref()) {
         (UpstreamProxySource::ApiService, Some(proxy_url)) => logger::log_info(&format!(
@@ -1634,7 +1464,6 @@ fn log_sidecar_proxy_signature(signature: &UpstreamHttpClientSignature) {
     }
 }
 
-#[cfg(test)]
 fn upstream_http_client(
     upstream_proxy_url: Option<&str>,
     connect_timeout: Duration,
@@ -2138,9 +1967,7 @@ fn sidecar_account_needs_background_refresh(account: &CodexAccount) -> bool {
 /// 绑定 OAuth 可能只存在于 API Key 或 collection 的绑定字段中，并不一定
 /// 出现在普通账号池 `account_ids` 里；这些账号仍必须接收重新授权后的新 Token。
 fn sidecar_auth_account_ids(collection: &CodexLocalAccessCollection) -> Vec<String> {
-    // 宿主内部调度（唤醒、鹈鹕测试）的账号同样会写入 API 服务 sidecar 清单，
-    // 凭据同步与后台刷新范围必须和 sidecar 实际持有的账号保持一致。
-    let mut scoped_account_ids = effective_sidecar_account_ids_with_internal(collection, true);
+    let mut scoped_account_ids = effective_sidecar_account_ids(collection);
     let mut seen = scoped_account_ids.iter().cloned().collect::<HashSet<_>>();
 
     // API Key 账号自身不持有 OAuth refresh_token；如果它绑定了 OAuth，
@@ -2286,20 +2113,38 @@ fn trigger_sidecar_account_refresh_in_background(collection: CodexLocalAccessCol
     });
 }
 
-pub struct CodexOfficialWakeupChatResult {
-    pub account: CodexAccount,
-    pub reply: String,
-    pub duration_ms: u64,
-}
-
-#[cfg(test)]
 struct CodexOfficialWakeupHttpResponse {
     account: CodexAccount,
     status: StatusCode,
     body: String,
+    /// 上游响应头 `x-codex-turn-state` 原文；只用于当场分级，不写盘。
+    turn_state_value: Option<String>,
 }
 
-#[cfg(test)]
+/// API 直连唤醒使用的上游代理与超时配置：沿用用户已保存的 API 服务网络设置，
+/// 但只读取配置，不启动、也不依赖 API 服务进程。
+async fn official_wakeup_network_config() -> (Option<String>, CodexLocalAccessTimeouts) {
+    if let Err(err) = ensure_runtime_loaded_without_start().await {
+        logger::log_warn(&format!(
+            "[CodexWakeup] 加载 API 直连网络配置失败，使用默认网络配置: {}",
+            err
+        ));
+        return (None, CodexLocalAccessTimeouts::default());
+    }
+
+    let runtime = gateway_runtime().lock().await;
+    runtime
+        .collection
+        .as_ref()
+        .map(|collection| {
+            (
+                collection.upstream_proxy_url.clone(),
+                collection_timeouts(collection),
+            )
+        })
+        .unwrap_or_else(|| (None, CodexLocalAccessTimeouts::default()))
+}
+
 async fn send_agent_identity_wakeup_request_with_base_urls(
     account: &CodexAccount,
     target: &str,
@@ -2345,6 +2190,11 @@ async fn send_agent_identity_wakeup_request_with_base_urls(
         )
         .await?;
         let status = response.status();
+        let turn_state_value = response
+            .headers()
+            .get(CODEX_TURN_STATE_HEADER_NAME)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let raw_body = response
             .text()
             .await
@@ -2364,28 +2214,36 @@ async fn send_agent_identity_wakeup_request_with_base_urls(
             account: current,
             status,
             body,
+            turn_state_value,
         });
     }
 
     Err("Agent Identity task 恢复后官方直连唤醒仍失败".to_string())
 }
 
+pub struct CodexOfficialWakeupChatResult {
+    pub account: CodexAccount,
+    pub reply: String,
+    pub duration_ms: u64,
+}
+
+/// API 直连唤醒：宿主带上所选账号凭据直接请求官方上游，不需要 Codex CLI，
+/// 也不经过本地 API 服务进程。
 pub async fn run_official_wakeup_chat(
     account_id: &str,
     model: Option<&str>,
     reasoning_effort: Option<&str>,
     prompt: &str,
 ) -> Result<CodexOfficialWakeupChatResult, String> {
-    let _internal_permit = acquire_internal_request_permit(account_id).await?;
     let account = get_prepared_account(account_id).await?;
     if account.is_api_key_auth() {
-        return Err("Codex 官方直连唤醒仅支持 OAuth 账号。".to_string());
+        return Err("Codex API 直连唤醒仅支持 OAuth / Agent Identity 账号。".to_string());
     }
 
     let model = model
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("gpt-5.4");
+        .unwrap_or(crate::modules::codex_wakeup::DEFAULT_WAKEUP_MODEL);
     let reasoning_effort = reasoning_effort
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -2420,7 +2278,7 @@ pub async fn run_official_wakeup_chat(
         "stream": true,
     });
     let body = serde_json::to_vec(&request_body)
-        .map_err(|e| format!("序列化官方直连唤醒请求失败: {}", e))?;
+        .map_err(|e| format!("序列化 API 直连唤醒请求失败: {}", e))?;
     let mut headers = HashMap::new();
     headers.insert("accept".to_string(), "text/event-stream".to_string());
     headers.insert("content-type".to_string(), "application/json".to_string());
@@ -2437,6 +2295,12 @@ pub async fn run_official_wakeup_chat(
         headers.insert("x-openai-fedramp".to_string(), "true".to_string());
     }
 
+    let (upstream_proxy_url, timeouts) = official_wakeup_network_config().await;
+    let upstream_connect_timeout = duration_from_millis(
+        timeouts.legacy_upstream_connect_timeout_ms,
+        DEFAULT_UPSTREAM_CONNECT_TIMEOUT,
+    );
+    let upstream_target = resolve_upstream_target(RESPONSES_PATH)?;
     let started_at = Instant::now();
     let format_transport_error = |err: String| {
         let detail = err
@@ -2445,40 +2309,93 @@ pub async fn run_official_wakeup_chat(
             .filter(|detail| !detail.is_empty())
             .unwrap_or(err.as_str());
         format!(
-            "Codex 官方服务暂时不可用，未能连接到所选账号的官方对话服务。请检查网络和代理配置。技术细节: {}",
+            "Codex API 直连暂时不可用，未能连接到所选账号的官方对话服务。请检查网络和代理配置。技术细节: {}",
             detail
         )
     };
-    let response = send_internal_api_service_request(
-        account_id,
-        RESPONSES_PATH,
-        &headers,
-        &body,
-        Duration::from_secs(15 * 60),
-    )
-    .await
-    .map_err(format_transport_error)?;
-    let status = response.status();
-    let body_text = response
-        .text()
+    let (account, status, body_text, turn_state_value) = if account.is_agent_identity_auth() {
+        let response = send_agent_identity_wakeup_request_with_base_urls(
+            &account,
+            &upstream_target,
+            &headers,
+            &body,
+            upstream_proxy_url.as_deref(),
+            upstream_connect_timeout,
+            &timeouts,
+            UPSTREAM_CODEX_BASE_URL,
+            codex_agent_identity::AGENT_IDENTITY_AUTH_API_BASE_URL,
+        )
         .await
-        .map_err(|e| format!("读取 API 服务唤醒响应失败: {}", e))?;
+        .map_err(format_transport_error)?;
+        (
+            response.account,
+            response.status,
+            response.body,
+            response.turn_state_value,
+        )
+    } else {
+        let response = send_upstream_request(
+            "POST",
+            &upstream_target,
+            &headers,
+            &body,
+            &account,
+            upstream_proxy_url.as_deref(),
+            upstream_connect_timeout,
+            &timeouts,
+            CodexLocalAccessImageGenerationMode::Disabled,
+            CodexLocalAccessRequestKind::Text,
+        )
+        .await
+        .map_err(format_transport_error)?;
+        let status = response.status();
+        let turn_state_value = response
+            .headers()
+            .get(CODEX_TURN_STATE_HEADER_NAME)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let body_text = response
+            .text()
+            .await
+            .map_err(|e| format!("读取 API 直连唤醒响应失败: {}", e))?;
+        (account, status, body_text, turn_state_value)
+    };
+
+    // 唤醒链路同样记录 state 观测：账号风控状态与 API 服务请求日志共用同一份观测数据。
+    let (state_length, state_class) = observe_turn_state_header_value(turn_state_value.as_deref());
+    let wakeup_error_message = if status.is_success() {
+        None
+    } else {
+        extract_upstream_error_message(&body_text)
+    };
+    record_codex_turn_state_observation_async(
+        account.id.clone(),
+        CodexTurnStateObservation {
+            observed_at: now_ms(),
+            source: turn_state_observation_source_wakeup(),
+            class: state_class.to_string(),
+            length: state_length,
+            http_status: Some(status.as_u16()),
+            reason: turn_state_observation_reason(state_class),
+        },
+    )
+    .await;
 
     if !status.is_success() {
         let message = extract_upstream_error_message(&body_text)
             .unwrap_or_else(|| truncate_diagnostic_text(body_text.trim(), 4000));
         return Err(format!(
-            "官方直连唤醒失败({}): {}",
+            "API 直连唤醒失败({}): {}",
             status.as_u16(),
             message
         ));
     }
 
     let response_body = parse_responses_payload_from_upstream(body_text.as_bytes())
-        .map_err(|e| format!("解析官方直连唤醒响应失败: {}", e))?;
+        .map_err(|e| format!("解析 API 直连唤醒响应失败: {}", e))?;
     let reply = extract_output_text_from_response(&response_body);
     if reply.trim().is_empty() {
-        return Err("官方直连唤醒未返回可读回复。".to_string());
+        return Err("API 直连唤醒未返回可读回复。".to_string());
     }
     if account.is_agent_identity_auth() {
         cache_prepared_account(&account).await;
@@ -3325,7 +3242,6 @@ fn rewrite_request_model_alias_value(body_value: &mut Value) -> bool {
     true
 }
 
-#[cfg(test)]
 fn parse_request_body_json(body: &[u8]) -> Option<Value> {
     if body.is_empty() {
         return None;
@@ -3333,7 +3249,6 @@ fn parse_request_body_json(body: &[u8]) -> Option<Value> {
     serde_json::from_slice::<Value>(body).ok()
 }
 
-#[cfg(test)]
 fn proxy_target_path(target: &str) -> &str {
     target.split('?').next().unwrap_or(target).trim()
 }
@@ -3350,7 +3265,6 @@ fn is_images_edits_request(target: &str) -> bool {
     path == IMAGES_EDITS_PATH || path.ends_with("/images/edits")
 }
 
-#[cfg(test)]
 fn is_responses_request(target: &str) -> bool {
     let path = proxy_target_path(target);
     path == RESPONSES_PATH || path == BACKEND_CODEX_RESPONSES_PATH || path.ends_with("/responses")
@@ -3587,7 +3501,6 @@ fn build_image_generation_tool(
     Ok(Value::Object(tool))
 }
 
-#[cfg(test)]
 fn should_inject_image_generation_tool(model: &str) -> bool {
     let normalized = model.trim().to_ascii_lowercase();
     !normalized.is_empty()
@@ -3595,12 +3508,10 @@ fn should_inject_image_generation_tool(model: &str) -> bool {
         && !codex_protocol::codex_model_uses_responses_lite(&normalized)
 }
 
-#[cfg(test)]
 fn is_image_gen_function_name(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("image_gen.imagegen")
 }
 
-#[cfg(test)]
 fn tool_conflicts_with_hosted_image_generation(tool: &Value) -> bool {
     if tool
         .get("name")
@@ -3637,7 +3548,6 @@ fn tool_conflicts_with_hosted_image_generation(tool: &Value) -> bool {
             })
 }
 
-#[cfg(test)]
 fn has_hosted_image_generation_tool_conflict(object: &Map<String, Value>) -> bool {
     let local_conflict = object
         .get("tools")
@@ -3669,7 +3579,6 @@ fn has_hosted_image_generation_tool_conflict(object: &Map<String, Value>) -> boo
             .is_some_and(has_hosted_image_generation_tool_conflict)
 }
 
-#[cfg(test)]
 fn ensure_image_generation_tool_in_object(object: &mut Map<String, Value>) -> bool {
     let model = object.get("model").and_then(Value::as_str).unwrap_or("");
     if !should_inject_image_generation_tool(model) {
@@ -3700,7 +3609,6 @@ fn ensure_image_generation_tool_in_object(object: &mut Map<String, Value>) -> bo
     }
 }
 
-#[cfg(test)]
 fn remove_hosted_image_generation_tool_from_object(object: &mut Map<String, Value>) -> bool {
     let mut changed = false;
     if let Some(Value::Array(tools)) = object.get_mut("tools") {
@@ -3726,7 +3634,6 @@ fn remove_hosted_image_generation_tool_from_object(object: &mut Map<String, Valu
     changed
 }
 
-#[cfg(test)]
 fn remove_hosted_image_generation_capabilities_from_object(
     object: &mut Map<String, Value>,
 ) -> bool {
@@ -3757,7 +3664,6 @@ fn remove_hosted_image_generation_capabilities_from_object(
     changed
 }
 
-#[cfg(test)]
 fn is_image_generation_capability_name(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -3765,7 +3671,6 @@ fn is_image_generation_capability_name(value: &str) -> bool {
     )
 }
 
-#[cfg(test)]
 fn tool_declares_image_generation_capability(tool: &Value) -> bool {
     let Some(tool) = tool.as_object() else {
         return false;
@@ -3799,7 +3704,6 @@ fn tool_declares_image_generation_capability(tool: &Value) -> bool {
             .is_some_and(is_image_gen_function_name)
 }
 
-#[cfg(test)]
 fn tool_choice_selects_image_generation(choice: &Value) -> bool {
     if choice
         .as_str()

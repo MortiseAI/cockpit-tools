@@ -16,6 +16,7 @@ import { CodexAccountPoolHealthModal } from "../components/CodexAccountPoolHealt
 import { CodexStatsRangePicker } from "../components/CodexStatsRangePicker";
 import { CodexUsageTrend } from "../components/codex/CodexUsageTrend";
 import { PaginationControls } from "../components/PaginationControls";
+import { resolveCodexApiServiceLogModelPair } from "../utils/codexApiServiceLogModel";
 import type {
   CodexLocalAccessCustomRoutingRule,
   CodexLocalAccessScope,
@@ -30,7 +31,7 @@ import type {
 
 export type CodexApiServiceViewProps = ReturnType<typeof useCodexApiServicePageController>;
 
-/** 宿主内部调度（唤醒、鹈鹕测试）固定使用的 API 服务 Key ID，只在请求日志中展示本地化名称。 */
+/** 宿主内部调度（唤醒）固定使用的 API 服务 Key ID，只在请求日志中展示本地化名称。 */
 const INTERNAL_API_KEY_ID = "__cockpit_internal__";
 
 /** 渲染 CodexApiServicePage 的界面；业务状态与动作统一由 Controller 提供。 */
@@ -310,7 +311,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
           </span>
           <ManualHelpIconButton className="platform-header-help" />
         </div>
-        <div className="page-top-strip-right-placeholder" aria-hidden="true" />
       </div>
 
       <div className="page-tabs-row page-tabs-center page-tabs-row-with-leading">
@@ -2443,13 +2443,62 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                       event.email ||
                       event.accountId ||
                       "-";
+                    // 始终标出实际上游模型（与请求模型一致时也展示）；仅当日志未记录上游模型时回退为单行。
+                    const { requestedModel, upstreamModel } =
+                      resolveCodexApiServiceLogModelPair(event);
+                    // 上游 state 观测：只展示长度与分级，原文不入库也不展示。
+                    const turnStateClass = (event.turnStateClass || "")
+                      .trim()
+                      .toLowerCase();
+                    const turnStateLength =
+                      typeof event.turnStateLength === "number" &&
+                      event.turnStateLength > 0
+                        ? event.turnStateLength
+                        : null;
+                    // 只看 state：312 即疑似风控，292/332 正常，其它长度按异常展示。
+                    const turnStateSuspected = turnStateClass === "suspected";
+                    const turnStateLabel = turnStateSuspected
+                      ? turnStateLength !== null
+                        ? t("codex.turnState.logSuspectedWithLength", {
+                            length: turnStateLength,
+                            defaultValue: "疑似风控 · state {{length}}",
+                          })
+                        : t("codex.turnState.statusSuspected", "疑似风控")
+                      : turnStateClass === "missing"
+                        ? t("codex.turnState.stateMissing", "未返回 state")
+                        : turnStateLength !== null
+                          ? turnStateClass === "abnormal"
+                            ? t("codex.turnState.stateLengthAbnormal", {
+                                length: turnStateLength,
+                                defaultValue: "state {{length}}（异常）",
+                              })
+                            : t("codex.turnState.stateLength", {
+                                length: turnStateLength,
+                                defaultValue: "state {{length}}",
+                              })
+                          : "";
                     return (
                       <div
                         key={`${event.timestamp}-${event.requestId || event.apiKeyId}-${index}`}
                         className="codex-api-service-log-row"
                       >
                         <div>
-                          <strong>{event.modelId || "--"}</strong>
+                          <div className="codex-api-service-log-model">
+                            <strong title={requestedModel}>
+                              {requestedModel}
+                            </strong>
+                            {upstreamModel ? (
+                              <span
+                                className="codex-api-service-log-model-upstream"
+                                title={t(
+                                  "codex.apiService.logs.upstreamModel",
+                                  "实际模型",
+                                )}
+                              >
+                                ↳ {upstreamModel}
+                              </span>
+                            ) : null}
+                          </div>
                           <span
                             className={`codex-api-service-pill ${event.success ? "success" : "error"}`}
                           >
@@ -2526,6 +2575,17 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                                 status: event.httpStatus,
                                 defaultValue: "HTTP {{status}}",
                               })}
+                            </span>
+                          ) : null}
+                          {turnStateLabel ? (
+                            <span
+                              className={`codex-api-service-pill ${turnStateSuspected ? "error" : "muted"}`}
+                              title={t(
+                                "codex.turnState.logHint",
+                                "上游 x-codex-turn-state：312 视为疑似风控，292/332 正常。",
+                              )}
+                            >
+                              {turnStateLabel}
                             </span>
                           ) : null}
                           {event.errorCategory ? (
@@ -4137,6 +4197,11 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
         onUpdateImageGenerationModel={(model) =>
           codexLocalAccessService
             .updateCodexLocalAccessImageGenerationModel(model)
+            .then(setState)
+        }
+        onUpdateImageGenerationAccounts={(accountIds) =>
+          codexLocalAccessService
+            .updateCodexLocalAccessImageGenerationAccounts(accountIds)
             .then(setState)
         }
         onUpdateUpstreamProxyConfig={(url) =>

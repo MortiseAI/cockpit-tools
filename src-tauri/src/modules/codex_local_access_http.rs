@@ -567,7 +567,6 @@ fn resolve_upstream_target(target: &str) -> Result<String, String> {
     }
 }
 
-#[cfg(test)]
 fn account_upstream_base_url(account: &CodexAccount) -> String {
     if !account.is_api_key_auth() {
         return UPSTREAM_CODEX_BASE_URL.to_string();
@@ -612,7 +611,6 @@ fn account_upstream_base_url(account: &CodexAccount) -> String {
     candidate.unwrap_or_else(|| DEFAULT_OPENAI_RESPONSES_BASE_URL.to_string())
 }
 
-#[cfg(test)]
 fn account_upstream_token(account: &CodexAccount) -> Result<String, String> {
     let token = if account.is_api_key_auth() {
         account.openai_api_key.as_deref().unwrap_or_default()
@@ -632,14 +630,12 @@ fn account_upstream_token(account: &CodexAccount) -> Result<String, String> {
     }
 }
 
-#[cfg(test)]
 fn build_upstream_url(account: &CodexAccount, target: &str) -> Result<String, String> {
     let base_url = account_upstream_base_url(account);
     Url::parse(&base_url).map_err(|e| format!("上游 Base URL 无效: {}", e))?;
     Ok(format!("{}{}", base_url.trim_end_matches('/'), target))
 }
 
-#[cfg(test)]
 fn is_stream_request(headers: &HashMap<String, String>, body: &[u8]) -> bool {
     if let Some(accept) = headers.get("accept") {
         if accept.to_ascii_lowercase().contains("text/event-stream") {
@@ -653,7 +649,6 @@ fn is_stream_request(headers: &HashMap<String, String>, body: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(test)]
 fn resolve_upstream_account_id(account: &CodexAccount) -> Option<String> {
     account
         .account_id
@@ -2129,12 +2124,10 @@ async fn force_refresh_gateway_account(
     Ok(account)
 }
 
-#[cfg(test)]
 fn should_retry_upstream_send_error(error: &reqwest::Error) -> bool {
     error.is_timeout() || error.is_connect() || error.is_request()
 }
 
-#[cfg(test)]
 fn format_reqwest_error_chain(error: &reqwest::Error) -> String {
     let mut parts = vec![error.to_string()];
     let mut source = StdError::source(error);
@@ -2148,7 +2141,6 @@ fn format_reqwest_error_chain(error: &reqwest::Error) -> String {
     parts.join(" | caused by: ")
 }
 
-#[cfg(test)]
 fn format_upstream_network_error(error: &reqwest::Error) -> String {
     format!(
         "Codex 上游网络或代理不可用，未能连接到所选账号的上游服务。请检查网络、代理配置以及账号 Base URL 可访问性。技术细节: {}",
@@ -2156,7 +2148,6 @@ fn format_upstream_network_error(error: &reqwest::Error) -> String {
     )
 }
 
-#[cfg(test)]
 fn backoff_retry_delay(retry_attempt: usize, base_delay_ms: u64, max_delay_ms: u64) -> Duration {
     let multiplier = match retry_attempt {
         0 | 1 => 1u32,
@@ -2186,7 +2177,6 @@ fn should_retry_single_account_upstream_status(status: StatusCode) -> bool {
     )
 }
 
-#[cfg(test)]
 fn build_account_scoped_upstream_body<'a>(
     target: &str,
     body: &'a [u8],
@@ -2259,7 +2249,6 @@ fn build_account_scoped_upstream_body<'a>(
         .map_err(|e| format!("序列化账号级 responses 请求体失败: {}", e))
 }
 
-#[cfg(test)]
 async fn send_upstream_request(
     method: &str,
     target: &str,
@@ -2292,7 +2281,6 @@ async fn send_upstream_request(
     .await
 }
 
-#[cfg(test)]
 async fn send_upstream_request_with_authorization_url(
     method: &str,
     url: &str,

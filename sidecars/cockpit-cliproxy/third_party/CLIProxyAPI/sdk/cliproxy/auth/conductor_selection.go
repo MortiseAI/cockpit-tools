@@ -1224,6 +1224,14 @@ func (m *Manager) shouldRetryAfterErrorWithAttempted(ctx context.Context, opts c
 		return 0, false
 	}
 	status := statusCodeFromError(err)
+	// Transport failures have no HTTP response, but may use another bounded
+	// retry round. Never revive a canceled or explicitly request-scoped call.
+	if (ctx != nil && ctx.Err() != nil) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return 0, false
+	}
+	if status == 0 && isConnectionLifecycleError(err) {
+		status = http.StatusServiceUnavailable
+	}
 	if status == http.StatusOK {
 		return 0, false
 	}
@@ -1539,6 +1547,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		return nil, nil, &Error{Code: "executor_not_found", Message: "executor not registered"}
 	}
 	candidates := make([]*Auth, 0, len(m.auths))
+	var triedCandidates []*Auth
 	modelKey := strings.TrimSpace(model)
 	// Always use base model name (without thinking suffix) for auth matching.
 	if modelKey != "" {
@@ -1558,18 +1567,23 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		if !eligibility.allows(candidate) {
 			continue
 		}
-		if _, used := tried[candidate.ID]; used {
+		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
 			continue
 		}
-		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
+		if _, used := tried[candidate.ID]; used {
+			triedCandidates = append(triedCandidates, candidate)
 			continue
 		}
 		candidates = append(candidates, candidate)
 	}
 	if len(candidates) == 0 {
+		_, _, triedUnavailable := m.availableAuthsForSelector(selector, triedCandidates, provider, model, time.Now())
 		m.mu.RUnlock()
 		var err error = &Error{Code: "auth_not_found", Message: "no auth available"}
-		err = reportAuthSelectionFailure(ctx, selector, provider, model, nil, err)
+		// Exhausting this request's tried set is not a persistent pool outage.
+		if triedUnavailable != nil {
+			err = reportAuthSelectionFailure(ctx, selector, provider, model, triedCandidates, err)
+		}
 		return nil, nil, err
 	}
 	available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, provider, model, time.Now())
@@ -1579,7 +1593,10 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		if tryRecoverAuthSelection(ctx, selector, provider, model, opts, candidates, tried, errAvailable) {
 			return m.pickNextLegacy(ctx, provider, model, opts, tried)
 		}
-		errAvailable = reportAuthSelectionFailure(ctx, selector, provider, model, candidates, errAvailable)
+		_, _, triedUnavailable := m.availableAuthsForSelector(selector, triedCandidates, provider, model, time.Now())
+		if triedUnavailable != nil {
+			errAvailable = reportAuthSelectionFailure(ctx, selector, provider, model, candidates, errAvailable)
+		}
 		m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, tried, errAvailable)
 		return nil, nil, errAvailable
 	}
@@ -1874,6 +1891,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = selectionArgForSelector(selector, model)
 	pluginScheduler := m.pluginScheduler
 	candidates := make([]*Auth, 0, len(m.auths))
+	var triedCandidates []*Auth
 	modelKey := strings.TrimSpace(model)
 	// Always use base model name (without thinking suffix) for auth matching.
 	if modelKey != "" {
@@ -1900,21 +1918,25 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		if _, ok := providerSet[providerKey]; !ok {
 			continue
 		}
-		if _, used := tried[candidate.ID]; used {
-			continue
-		}
 		if _, ok := m.executors[providerKey]; !ok {
 			continue
 		}
 		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
 			continue
 		}
+		if _, used := tried[candidate.ID]; used {
+			triedCandidates = append(triedCandidates, candidate)
+			continue
+		}
 		candidates = append(candidates, candidate)
 	}
 	if len(candidates) == 0 {
+		_, _, triedUnavailable := m.availableAuthsForSelector(selector, triedCandidates, "mixed", model, time.Now())
 		m.mu.RUnlock()
 		var err error = &Error{Code: "auth_not_found", Message: "no auth available"}
-		err = reportAuthSelectionFailure(ctx, selector, "mixed", model, nil, err)
+		if triedUnavailable != nil {
+			err = reportAuthSelectionFailure(ctx, selector, "mixed", model, triedCandidates, err)
+		}
 		return nil, nil, "", err
 	}
 	available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, "mixed", model, time.Now())
@@ -1924,7 +1946,10 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		if tryRecoverAuthSelection(ctx, selector, "mixed", model, opts, candidates, tried, errAvailable) {
 			return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
 		}
-		errAvailable = reportAuthSelectionFailure(ctx, selector, "mixed", model, candidates, errAvailable)
+		_, _, triedUnavailable := m.availableAuthsForSelector(selector, triedCandidates, "mixed", model, time.Now())
+		if triedUnavailable != nil {
+			errAvailable = reportAuthSelectionFailure(ctx, selector, "mixed", model, candidates, errAvailable)
+		}
 		m.warnLogAuthUnavailable(ctx, providers, model, opts, tried, errAvailable)
 		return nil, nil, "", errAvailable
 	}
