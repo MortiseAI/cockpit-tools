@@ -35,7 +35,7 @@ export interface CodexQuickConfig {
   context_management_experimental_mode: boolean;
 }
 
-export type CodexAppSpeed = "standard" | "fast";
+export type CodexAppSpeed = "standard" | "fast" | "auto";
 export type CodexFingerprintMode = "off" | "device" | "session" | "full";
 
 export interface CodexAppSpeedConfig {

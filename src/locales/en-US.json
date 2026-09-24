@@ -4234,6 +4234,8 @@
       "standardDesc": "Default speed, regular usage",
       "fast": "Fast",
       "fastDesc": "1.5x speed, higher usage",
+      "auto": "Auto",
+      "autoDesc": "Follow the client setting (such as Stem CLI /fast)",
       "saveSuccess": "Speed updated",
       "saveFailed": "Failed to save speed: {{error}}"
     },

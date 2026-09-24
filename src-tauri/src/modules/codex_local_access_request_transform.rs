@@ -1209,7 +1209,7 @@ fn api_service_default_service_tier() -> Result<Option<&'static str>, String> {
 }
 
 fn sidecar_payload_default_service_tier(default_service_tier: Option<&str>) -> Option<Value> {
-    let service_tier = default_service_tier.and_then(normalize_upstream_inject_service_tier)?;
+    let policy = default_service_tier.and_then(normalize_proxy_service_tier)?;
     let models = SIDECAR_SERVICE_TIER_SUPPORTED_PAYLOAD_FORMATS
         .iter()
         .map(|payload_format| {
@@ -1219,19 +1219,25 @@ fn sidecar_payload_default_service_tier(default_service_tier: Option<&str>) -> O
             })
         })
         .collect::<Vec<_>>();
-    let mut params = Map::new();
-    params.insert(
-        "service_tier".to_string(),
-        Value::String(service_tier.to_string()),
-    );
     let mut rule = Map::new();
     rule.insert("models".to_string(), Value::Array(models));
-    rule.insert("params".to_string(), Value::Object(params));
     let mut payload = Map::new();
-    payload.insert(
-        "default".to_string(),
-        Value::Array(vec![Value::Object(rule)]),
-    );
+    match policy {
+        "priority" => {
+            // Forced Fast must override an explicit Standard request.
+            let mut params = Map::new();
+            params.insert("service_tier".to_string(), Value::String("priority".to_string()));
+            rule.insert("params".to_string(), Value::Object(params));
+            payload.insert("override".to_string(), Value::Array(vec![Value::Object(rule)]));
+        }
+        "standard" => {
+            // An omitted tier inherits the OpenAI project's default, which may
+            // itself be Fast. Explicit "default" guarantees Standard upstream.
+            rule.insert("params".to_string(), json!({ "service_tier": "default" }));
+            payload.insert("override".to_string(), Value::Array(vec![Value::Object(rule)]));
+        }
+        _ => return None,
+    }
     Some(Value::Object(payload))
 }
 

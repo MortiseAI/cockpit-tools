@@ -34,6 +34,7 @@ type relayServer struct {
 	automaticSelectorOnce sync.Once
 	runtime               executorRuntime
 	cfg                   *config.Config
+	configPath            string
 	manifest              *manifest
 	authManager           *coreauth.Manager
 	emitter               *eventEmitter
@@ -54,6 +55,7 @@ func (s *relayServer) router() *gin.Engine {
 	router.Use(s.policy.middleware())
 	router.GET("/v1/models", s.handleModels)
 	router.GET(cockpitQuotaPath, s.handleCockpitQuota)
+	router.GET("/v1/cockpit/speed-policy", s.handleSpeedPolicy)
 	router.POST("/v1/cockpit/auth/reset", s.handleResetAuthState)
 	router.POST("/v1/cockpit/accounts/reset-scheduler", s.handleResetSchedulerState)
 	router.POST("/v1/live", s.handleCodexLive)
@@ -423,6 +425,41 @@ func (s *relayServer) handleCockpitQuota(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, response)
+}
+
+// handleSpeedPolicy lets clients display the gateway policy before their next turn.
+// The config file is read on demand because speed changes hot-reload without
+// restarting active streams.
+func (s *relayServer) handleSpeedPolicy(c *gin.Context) {
+	if _, ok := s.requireAPIKey(c); !ok {
+		return
+	}
+	mode := "auto"
+	if s.configPath != "" {
+		var err error
+		mode, err = speedPolicyFromConfigPath(s.configPath)
+		if err != nil {
+			writeAPIError(c, http.StatusServiceUnavailable, "speed policy unavailable", "speed_policy_unavailable")
+			return
+		}
+	} else if s.cfg != nil {
+		mode = speedPolicyFromPayload(s.cfg.Payload)
+	}
+	c.JSON(http.StatusOK, gin.H{"version": 1, "mode": mode})
+}
+
+func speedPolicyFromConfigPath(path string) (string, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var current struct {
+		Payload config.PayloadConfig `json:"payload"`
+	}
+	if err := json.Unmarshal(contents, &current); err != nil {
+		return "", err
+	}
+	return speedPolicyFromPayload(current.Payload), nil
 }
 
 type resetAuthStateRequest struct {

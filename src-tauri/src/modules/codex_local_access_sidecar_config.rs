@@ -778,16 +778,18 @@ fn validate_api_key_account_scope_update(
 fn codex_app_speed_service_tier(speed: &CodexAppSpeed) -> Option<&'static str> {
     match speed {
         CodexAppSpeed::Fast => Some("priority"),
-        CodexAppSpeed::Standard => None,
+        CodexAppSpeed::Standard => Some("standard"),
+        CodexAppSpeed::Auto => None,
     }
 }
 
 #[test]
-fn removed_app_speed_does_not_inject_a_service_tier() {
+fn app_speed_maps_to_gateway_service_tier() {
     let legacy_speed: CodexAppSpeed =
         serde_json::from_str(r#""ultrafast""#).expect("read legacy speed");
-    assert_eq!(codex_app_speed_service_tier(&legacy_speed), None);
-    assert_eq!(codex_app_speed_service_tier(&CodexAppSpeed::Standard), None);
+    assert_eq!(codex_app_speed_service_tier(&legacy_speed), Some("standard"));
+    assert_eq!(codex_app_speed_service_tier(&CodexAppSpeed::Standard), Some("standard"));
+    assert_eq!(codex_app_speed_service_tier(&CodexAppSpeed::Auto), None);
     assert_eq!(
         codex_app_speed_service_tier(&CodexAppSpeed::Fast),
         Some("priority")

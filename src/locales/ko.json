@@ -4001,6 +4001,8 @@
       "standardDesc": "기본 속도, 일반 사용량",
       "fast": "빠름",
       "fastDesc": "1.5배 속도, 사용량 증가",
+      "auto": "Auto",
+      "autoDesc": "클라이언트 설정을 따름 (예: Stem CLI /fast)",
       "saveSuccess": "속도가 업데이트되었습니다",
       "saveFailed": "속도 저장 실패: {{error}}"
     },

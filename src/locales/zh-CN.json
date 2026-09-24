@@ -4241,6 +4241,8 @@
       "standardDesc": "默认速度，常规用量",
       "fast": "快速",
       "fastDesc": "1.5 倍速，用量增加",
+      "auto": "Auto",
+      "autoDesc": "遵循调用方设置（如 Stem CLI /fast）",
       "saveSuccess": "速度已更新",
       "saveFailed": "保存速度失败：{{error}}"
     },

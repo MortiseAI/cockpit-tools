@@ -1419,13 +1419,13 @@
     }
 
     #[test]
-    fn sidecar_payload_default_service_tier_builds_supported_format_priority_default_rule() {
+    fn sidecar_payload_default_service_tier_builds_supported_format_priority_override_rule() {
         let payload =
             sidecar_payload_default_service_tier(Some("priority")).expect("payload should exist");
         let rules = payload
-            .get("default")
+            .get("override")
             .and_then(Value::as_array)
-            .expect("default rules should exist");
+            .expect("override rules should exist");
 
         assert_eq!(rules.len(), 1);
         assert_eq!(
@@ -1460,9 +1460,9 @@
         // "fast" normalizes to priority and is injectable as a default.
         let fast = sidecar_payload_default_service_tier(Some("fast")).expect("fast -> priority");
         let rules = fast
-            .get("default")
+            .get("override")
             .and_then(Value::as_array)
-            .expect("default rules");
+            .expect("override rules");
         assert_eq!(
             rules[0]
                 .get("params")
@@ -1470,9 +1470,9 @@
                 .and_then(Value::as_str),
             Some("priority")
         );
-        // standard/default should not force an explicit upstream field.
-        assert!(sidecar_payload_default_service_tier(Some("standard")).is_none());
-        assert!(sidecar_payload_default_service_tier(Some("default")).is_none());
+        let standard = sidecar_payload_default_service_tier(Some("standard")).expect("standard override");
+        assert_eq!(standard["override"][0]["params"], json!({ "service_tier": "default" }));
+        assert_eq!(sidecar_payload_default_service_tier(Some("default")), Some(standard));
     }
 
     #[test]

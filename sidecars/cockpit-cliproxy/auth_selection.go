@@ -1448,8 +1448,8 @@ func (s *cockpitSelector) rotatedIndex(account *accountSpec, start int) int {
 type usagePlugin struct {
 	manifest *manifest
 	tracker  *requestUsageTracker
-	// defaultServiceTier is the tier Cockpit injects when the client sends no
-	// service_tier (API 服务开启快速模式时由 payload.default 注入 priority)。
+	// The generated sidecar config can change while the process remains running.
+	configPath         string
 	defaultServiceTier string
 }
 
@@ -1460,13 +1460,19 @@ func usageServiceTier(record coreusage.Record, fallback string) string {
 	if tier := normalizedUsageServiceTier(record.ResponseServiceTier); tier != "" {
 		return tier
 	}
+	if tier := normalizedRequestedUsageServiceTier(record.UpstreamServiceTier); tier != "" {
+		return tier
+	}
+	if tier := normalizedUsageServiceTier(fallback); tier != "" {
+		return tier
+	}
 	if tier := normalizedRequestedUsageServiceTier(record.ServiceTier); tier != "" {
 		return tier
 	}
 	if tier := normalizedRequestedUsageServiceTier(record.RequestServiceTier); tier != "" {
 		return tier
 	}
-	return normalizedUsageServiceTier(fallback)
+	return ""
 }
 
 // normalizedRequestedUsageServiceTier 归一化客户端请求的档位。空值、"auto" 和
@@ -1520,22 +1526,16 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 	}
 	status := record.Fail.StatusCode
 	success := !record.Failed
-	// Cockpit logs describe the request sent upstream, including the API
-	// service's Fast default. The SDK retains the original client preference.
+	// Cockpit logs describe the request sent upstream. The SDK also retains
+	// the original client preference, which a forced gateway mode may override.
+	fallbackTier := currentDefaultUsageServiceTier(p.configPath, p.defaultServiceTier)
 	serviceTier := record.UpstreamServiceTier
 	if strings.TrimSpace(serviceTier) == "" {
-		serviceTier = record.ServiceTier
-		if strings.TrimSpace(serviceTier) == "" {
-			serviceTier = record.RequestServiceTier
-		}
-		// Older reporters may omit the outgoing tier. Retain the configured
-		// default fallback without substituting a response tier for the request.
-		switch strings.ToLower(strings.TrimSpace(serviceTier)) {
-		case "", "auto", "default":
-			requestRecord := record
-			requestRecord.ResponseServiceTier = ""
-			if tier := usageServiceTier(requestRecord, p.defaultServiceTier); tier != "" {
-				serviceTier = tier
+		serviceTier = fallbackTier
+		if serviceTier == "" {
+			serviceTier = record.ServiceTier
+			if strings.TrimSpace(serviceTier) == "" {
+				serviceTier = record.RequestServiceTier
 			}
 		}
 	}

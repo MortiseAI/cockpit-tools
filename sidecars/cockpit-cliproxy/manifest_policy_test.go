@@ -69,9 +69,15 @@ func TestUsageServiceTierUsesClientRequestedTier(t *testing.T) {
 	if got := usageServiceTier(coreusage.Record{ServiceTier: "priority"}, ""); got != "priority" {
 		t.Fatalf("client priority tier = %q, want priority", got)
 	}
-	// 客户端显式要求标准档位时不能回退成注入的默认档位。
-	if got := usageServiceTier(coreusage.Record{ServiceTier: "standard"}, "priority"); got != "standard" {
-		t.Fatalf("client standard tier = %q, want standard", got)
+	// A forced gateway tier takes precedence over the original client request.
+	if got := usageServiceTier(coreusage.Record{ServiceTier: "standard"}, "priority"); got != "priority" {
+		t.Fatalf("forced fast tier = %q, want priority", got)
+	}
+	if got := usageServiceTier(coreusage.Record{ServiceTier: "priority"}, "standard"); got != "standard" {
+		t.Fatalf("forced standard tier = %q, want standard", got)
+	}
+	if got := usageServiceTier(coreusage.Record{ServiceTier: "priority", UpstreamServiceTier: "standard"}, ""); got != "standard" {
+		t.Fatalf("outgoing standard tier = %q, want standard", got)
 	}
 	if got := usageServiceTier(coreusage.Record{ServiceTier: "flex"}, ""); got != "flex" {
 		t.Fatalf("client flex tier = %q, want flex", got)
@@ -3151,7 +3157,7 @@ func TestUsagePluginResolvesAPIKeyAndRequestKindFromCPARecord(t *testing.T) {
 	}
 }
 
-func TestUsagePluginFallbackPreservesRequestAndResponseTiers(t *testing.T) {
+func TestUsagePluginForcedTierPreservesResponseTier(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		record        coreusage.Record
@@ -3161,12 +3167,12 @@ func TestUsagePluginFallbackPreservesRequestAndResponseTiers(t *testing.T) {
 		{"missing request", coreusage.Record{ResponseServiceTier: "default"}, "priority", "default"},
 		{"auto request", coreusage.Record{ServiceTier: "auto", ResponseServiceTier: "default"}, "priority", "default"},
 		{"default request", coreusage.Record{ServiceTier: "default", ResponseServiceTier: "default"}, "priority", "default"},
-		{"explicit standard", coreusage.Record{ServiceTier: "standard", ResponseServiceTier: "default"}, "default", "default"},
-		{"legacy request", coreusage.Record{RequestServiceTier: "flex", ResponseServiceTier: "flex"}, "flex", "flex"},
+		{"explicit standard", coreusage.Record{ServiceTier: "standard", ResponseServiceTier: "default"}, "priority", "default"},
+		{"legacy request", coreusage.Record{RequestServiceTier: "flex", ResponseServiceTier: "flex"}, "priority", "flex"},
 		{"captured auto", coreusage.Record{UpstreamServiceTier: "auto", ResponseServiceTier: "default"}, "auto", "default"},
 		{"captured default", coreusage.Record{UpstreamServiceTier: "default", ResponseServiceTier: "priority"}, "default", "priority"},
 		{"ultrafast", coreusage.Record{UpstreamServiceTier: "ultrafast", ResponseServiceTier: "default"}, "ultrafast", "default"},
-		{"future tier", coreusage.Record{ServiceTier: "future-tier", ResponseServiceTier: "future-response"}, "future-tier", "future-response"},
+		{"future tier", coreusage.Record{ServiceTier: "future-tier", ResponseServiceTier: "future-response"}, "priority", "future-response"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tracker := newRequestUsageTracker()

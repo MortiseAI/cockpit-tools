@@ -31,14 +31,14 @@ interface CodexSpeedSelectProps {
 }
 
 const SPEED_MENU_WIDTH = 206;
-const SPEED_MENU_HEIGHT = 122;
+const SPEED_MENU_HEIGHT = 178;
 const SPEED_MENU_COMPACT_WIDTH = 180;
-const SPEED_MENU_COMPACT_HEIGHT = 106;
+const SPEED_MENU_COMPACT_HEIGHT = 152;
 const SPEED_MENU_GAP = 5;
 const SPEED_MENU_MARGIN = 8;
 const SPEED_MENU_Z_INDEX = 10030;
 
-/// 两档速度的文案键与兜底文案，供选择器与账号总览共用。
+/// 三档速度的文案键与兜底文案，供选择器与账号总览共用。
 export const CODEX_SPEED_DESCRIPTION: Record<
   CodexAppSpeed,
   { key: string; fallback: string }
@@ -48,6 +48,7 @@ export const CODEX_SPEED_DESCRIPTION: Record<
     fallback: "默认速度，常规用量",
   },
   fast: { key: "codex.speed.fastDesc", fallback: "1.5 倍速，用量增加" },
+  auto: { key: "codex.speed.autoDesc", fallback: "遵循调用方设置（如 Stem CLI /fast）" },
 };
 
 function resolveSpeedMenuPosition(
@@ -120,6 +121,11 @@ export function CodexSpeedSelect({
         value: "fast" as CodexAppSpeed,
         label: t("codex.speed.fast", "快速"),
         desc: t("codex.speed.fastDesc", "1.5 倍速，用量增加"),
+      },
+      {
+        value: "auto" as CodexAppSpeed,
+        label: t("codex.speed.auto", "Auto"),
+        desc: t("codex.speed.autoDesc", "遵循调用方设置（如 Stem CLI /fast）"),
       },
     ],
     [t],

@@ -44,6 +44,7 @@ fn get_global_state_path_for_dir(base_dir: &Path) -> PathBuf {
 
 fn normalize_service_tier_speed(value: Option<&str>) -> CodexAppSpeed {
     match value.map(str::trim) {
+        Some("auto") => CodexAppSpeed::Auto,
         Some(FAST_SERVICE_TIER) | Some(PRIORITY_SERVICE_TIER) | Some(FLEX_SERVICE_TIER) => {
             CodexAppSpeed::Fast
         }
@@ -138,7 +139,7 @@ fn write_global_state_json(path: &Path, state: &Map<String, Value>) -> Result<()
 fn legacy_service_tier_value(speed: &CodexAppSpeed) -> Value {
     match speed {
         CodexAppSpeed::Fast => Value::String(PRIORITY_SERVICE_TIER.to_string()),
-        CodexAppSpeed::Standard => Value::Null,
+        CodexAppSpeed::Standard | CodexAppSpeed::Auto => Value::Null,
     }
 }
 
@@ -160,7 +161,7 @@ fn sync_legacy_service_tier_state(base_dir: &Path, speed: &CodexAppSpeed) -> Res
     );
     atoms.insert(
         HAS_USER_CHANGED_SERVICE_TIER_KEY.to_string(),
-        Value::Bool(true),
+        Value::Bool(*speed != CodexAppSpeed::Auto),
     );
     write_global_state_json(&path, &state)
 }
@@ -295,13 +296,16 @@ fn write_app_speed_for_config_toml_path(
 fn desktop_service_tier_value(speed: &CodexAppSpeed) -> Option<&'static str> {
     match speed {
         CodexAppSpeed::Fast => Some(PRIORITY_SERVICE_TIER),
-        CodexAppSpeed::Standard => None,
+        CodexAppSpeed::Standard | CodexAppSpeed::Auto => None,
     }
 }
 
 /// 官方桌面端顶层 `service_tier` 取值：标准档显式写 `default`。
 fn top_level_service_tier_value(speed: &CodexAppSpeed) -> &'static str {
-    desktop_service_tier_value(speed).unwrap_or(DEFAULT_SERVICE_TIER)
+    match speed {
+        CodexAppSpeed::Auto => "auto",
+        _ => desktop_service_tier_value(speed).unwrap_or(DEFAULT_SERVICE_TIER),
+    }
 }
 
 fn write_app_speed_for_base_dir(
@@ -357,6 +361,7 @@ mod tests {
     #[test]
     fn normalizes_official_desktop_service_tier_values() {
         assert_eq!(normalize_service_tier_speed(None), CodexAppSpeed::Standard);
+        assert_eq!(normalize_service_tier_speed(Some("auto")), CodexAppSpeed::Auto);
         assert_eq!(
             normalize_service_tier_speed(Some("priority")),
             CodexAppSpeed::Fast
@@ -521,6 +526,19 @@ appearanceTheme = "system"
             .is_none());
         assert_eq!(doc[TOP_LEVEL_SERVICE_TIER_KEY].as_str(), Some("default"));
 
+        let _ = fs::remove_file(config_path);
+    }
+
+    #[test]
+    fn round_trips_auto_speed_in_official_config() {
+        let config_path = unique_temp_path("codex-speed-auto");
+        fs::write(&config_path, "service_tier = \"priority\"\n").expect("write config");
+        let saved = write_app_speed_for_config_toml_path(config_path.clone(), CodexAppSpeed::Auto)
+            .expect("write auto speed");
+        let loaded = super::read_official_app_speed_config_from_config_toml(&config_path)
+            .expect("read auto speed");
+        assert_eq!(saved.speed, CodexAppSpeed::Auto);
+        assert_eq!(loaded.speed, CodexAppSpeed::Auto);
         let _ = fs::remove_file(config_path);
     }
 

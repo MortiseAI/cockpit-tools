@@ -4001,6 +4001,8 @@
       "standardDesc": "既定の速度、通常の使用量",
       "fast": "高速",
       "fastDesc": "1.5倍速、使用量が増加",
+      "auto": "Auto",
+      "autoDesc": "クライアントの設定に従う（例：Stem CLI /fast）",
       "saveSuccess": "速度を更新しました",
       "saveFailed": "速度の保存に失敗しました: {{error}}"
     },

@@ -92,6 +92,8 @@ pub enum CodexAppSpeed {
     #[serde(alias = "ultrafast")]
     Standard,
     Fast,
+    /// Defer to the client request (for example Stem CLI /fast).
+    Auto,
 }
 
 impl Default for CodexAppSpeed {

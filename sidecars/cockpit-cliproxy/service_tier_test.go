@@ -52,12 +52,13 @@ func TestCodexFastServiceTierReachesUpstream(t *testing.T) {
 	for _, format := range []sdktranslator.Format{sdktranslator.FormatOpenAI, sdktranslator.FormatOpenAIResponse} {
 		for _, stream := range []bool{false, true} {
 			for _, tc := range []struct {
-				name, tier  string
-				defaultFast bool
+				name, tier, policy, want string
 			}{
-				{"gateway_default", "", true},
-				{"client_priority", "priority", false},
-				{"client_fast_alias", "fast", false},
+				{"gateway_standard_overrides_client", "priority", "standard", "default"},
+				{"gateway_fast_overrides_client", "default", "fast", "priority"},
+				{"gateway_auto_off", "", "auto", ""},
+				{"gateway_auto_on", "priority", "auto", "priority"},
+				{"client_fast_alias", "fast", "auto", "priority"},
 			} {
 				t.Run(fmt.Sprintf("%s/%s/stream=%t", format, tc.name, stream), func(t *testing.T) {
 					captured := make(chan []byte, 1)
@@ -69,8 +70,11 @@ func TestCodexFastServiceTierReachesUpstream(t *testing.T) {
 					}))
 					defer upstream.Close()
 					configJSON := `{}`
-					if tc.defaultFast {
-						configJSON = `{"payload":{"default":[{"models":[{"name":"*","protocol":"codex"},{"name":"*","protocol":"openai"},{"name":"*","protocol":"openai-response"}],"params":{"service_tier":"priority"}}]}}`
+					switch tc.policy {
+					case "fast":
+						configJSON = `{"payload":{"override":[{"models":[{"name":"*","protocol":"codex"},{"name":"*","protocol":"openai"},{"name":"*","protocol":"openai-response"}],"params":{"service_tier":"priority"}}]}}`
+					case "standard":
+						configJSON = `{"payload":{"override":[{"models":[{"name":"*","protocol":"codex"},{"name":"*","protocol":"openai"},{"name":"*","protocol":"openai-response"}],"params":{"service_tier":"default"}}]}}`
 					}
 					path := filepath.Join(t.TempDir(), "config.json")
 					if err := os.WriteFile(path, []byte(configJSON), 0600); err != nil {
@@ -115,12 +119,12 @@ func TestCodexFastServiceTierReachesUpstream(t *testing.T) {
 						}
 					}
 					body := <-captured
-					if got := gjson.GetBytes(body, "service_tier").String(); got != "priority" {
-						t.Fatalf("upstream service_tier = %q, want priority; body=%s", got, body)
+					if got := gjson.GetBytes(body, "service_tier").String(); got != tc.want {
+						t.Fatalf("upstream service_tier = %q, want %q; body=%s", got, tc.want, body)
 					}
 					select {
 					case record := <-records:
-						if record.ServiceTier != clientTier || record.UpstreamServiceTier != "priority" || record.ResponseServiceTier != "default" {
+						if record.ServiceTier != clientTier || record.ResponseServiceTier != "default" || (tc.want == "priority" && record.UpstreamServiceTier != "priority") {
 							t.Fatalf("tier evidence: client=%q outgoing=%q response=%q", record.ServiceTier, record.UpstreamServiceTier, record.ResponseServiceTier)
 						}
 					case <-ctx.Done():
@@ -158,5 +162,51 @@ func TestRelayRecordsRequestedServiceTier(t *testing.T) {
 				t.Fatalf("service tier metadata=%v, want %s", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSpeedPolicyEndpointTracksHotReloadedConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	path := filepath.Join(t.TempDir(), "config.json")
+	apiKey := apiKeySpec{ID: "key_1", Key: "client-key", Enabled: true}
+	m := &manifest{APIKeys: []apiKeySpec{apiKey}, apiKeyByValue: map[string]*apiKeySpec{"client-key": &apiKey}}
+	router := (&relayServer{configPath: path, cfg: &config.Config{}, manifest: m, policy: &requestPolicy{manifest: m}}).router()
+	for _, tc := range []struct{ configJSON, want string }{
+		{`{"payload":{"override":[{"models":[{"name":"*","protocol":"codex"}],"params":{"service_tier":"default"}}]}}`, "standard"},
+		{`{"payload":{"override":[{"models":[{"name":"*","protocol":"codex"}],"params":{"service_tier":"priority"}}]}}`, "fast"},
+		{`{}`, "auto"},
+	} {
+		if err := os.WriteFile(path, []byte(tc.configJSON), 0600); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodGet, "/v1/cockpit/speed-policy", nil)
+		request.Header.Set("Authorization", "Bearer client-key")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || gjson.Get(response.Body.String(), "mode").String() != tc.want {
+			t.Fatalf("status=%d mode=%s, want %s", response.Code, response.Body.String(), tc.want)
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/cockpit/speed-policy", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", response.Code)
+	}
+}
+
+func TestUsageTierTracksHotReloadedConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	for _, tc := range []struct{ body, want string }{
+		{`{"payload":{"override":[{"models":[{"name":"*","protocol":"codex"}],"params":{"service_tier":"default"}}]}}`, "standard"},
+		{`{"payload":{"override":[{"models":[{"name":"*","protocol":"codex"}],"params":{"service_tier":"priority"}}]}}`, "priority"},
+		{`{}`, ""},
+	} {
+		if err := os.WriteFile(path, []byte(tc.body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if got := currentDefaultUsageServiceTier(path, "stale"); got != tc.want {
+			t.Fatalf("hot-reloaded usage tier = %q, want %q", got, tc.want)
+		}
 	}
 }

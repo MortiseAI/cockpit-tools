@@ -90,23 +90,65 @@ func normalizeCockpitLocale(locale string) string {
 	return locale
 }
 
-// defaultUsageServiceTier 返回 Cockpit 通过 payload.default 注入的服务等级。
-// 客户端未显式发送 service_tier 时，该档位就是实际上游使用的档位，
-// 用于统计与日志里区分快速/标准模式。
+// defaultUsageServiceTier returns the configured gateway tier for usage fallback.
 func defaultUsageServiceTier(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	for _, rule := range cfg.Payload.Default {
+	return usageTierForSpeedPolicy(speedPolicyFromPayload(cfg.Payload))
+}
+
+func usageTierForSpeedPolicy(mode string) string {
+	switch mode {
+	case "fast":
+		return "priority"
+	case "standard":
+		return "standard"
+	}
+	return ""
+}
+
+func currentDefaultUsageServiceTier(path, fallback string) string {
+	if path != "" {
+		if mode, err := speedPolicyFromConfigPath(path); err == nil {
+			return usageTierForSpeedPolicy(mode)
+		}
+	}
+	return fallback
+}
+
+func speedPolicyFromPayload(payload config.PayloadConfig) string {
+	for _, rule := range payload.Override {
+		if tier, ok := rule.Params["service_tier"].(string); ok {
+			switch normalizedUsageServiceTier(tier) {
+			case "priority":
+				return "fast"
+			case "standard":
+				return "standard"
+			}
+		}
+	}
+	for _, rule := range payload.Filter {
+		for _, path := range rule.Params {
+			if path == "service_tier" {
+				return "standard"
+			}
+		}
+	}
+	// Previous versions emitted a default rule for Fast.
+	for _, rule := range payload.Default {
 		tier, ok := rule.Params["service_tier"].(string)
 		if !ok {
 			continue
 		}
-		if normalized := normalizedUsageServiceTier(tier); normalized != "" {
-			return normalized
+		if normalizedUsageServiceTier(tier) == "priority" {
+			return "fast"
+		}
+		if normalizedUsageServiceTier(tier) == "standard" {
+			return "standard"
 		}
 	}
-	return ""
+	return "auto"
 }
 
 func main() {
@@ -196,6 +238,7 @@ func main() {
 		manifest:           m,
 		tracker:            usageTracker,
 		defaultServiceTier: defaultUsageServiceTier(cfg),
+		configPath:         absConfigPath,
 	})
 
 	runtime, err := newSidecarRuntime(ctx, absConfigPath, cfg, m, coreManager)
@@ -220,6 +263,7 @@ func main() {
 		automaticSelector:  buildCoreAuthSelectorWithConcurrency(nil, selector, m, quotaState, usageTracker),
 		runtime:            runtime,
 		cfg:                cfg,
+		configPath:         absConfigPath,
 		manifest:           m,
 		authManager:        coreManager,
 		emitter:            emitter,
