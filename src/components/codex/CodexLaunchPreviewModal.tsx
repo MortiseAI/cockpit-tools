@@ -1117,7 +1117,6 @@ export function CodexLaunchPreviewModal({
     accountPresentation?.planLabel ||
     (mode === "apiService" ? "API Key" : "Codex");
   const displayContextText = summary?.contextText || fallbackContextText;
-  const speedAction = displayActions.find((action) => action.id === "speed");
   // API 服务的「启用 GPT 生图」：在预览正文里单独成行，与 DeepSeek 启动预览保持一致。
   const imageForwardAction = displayActions.find(
     (action) => action.id === "image-forward",
@@ -1648,15 +1647,6 @@ export function CodexLaunchPreviewModal({
                       </>
                     )}
                   </div>
-                  {speedAction?.control && (
-                    <div
-                      className="codex-launch-preview-header-speed"
-                      title={speedAction.description}
-                    >
-                      <span>{speedAction.label}</span>
-                      {speedAction.control}
-                    </div>
-                  )}
                 </div>
               </div>
 

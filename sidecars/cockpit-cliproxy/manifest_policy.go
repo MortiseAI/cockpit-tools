@@ -1762,6 +1762,9 @@ func ollamaReasoningEfforts(model string) []string {
 		return []string{"low", "medium", "high", "xhigh", "max"}
 	case strings.HasPrefix(model, "gpt-6-astra"):
 		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+	// Luna 家族没有 ultra 档位，不要跟着上面一起放宽。
+	case strings.HasPrefix(model, "gpt-6-luna"):
+		return []string{"low", "medium", "high", "xhigh", "max"}
 	case strings.HasPrefix(model, "gpt-5.6-sol"), strings.HasPrefix(model, "gpt-5.6-terra"):
 		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 	case strings.HasPrefix(model, "gpt-5.6-luna"), strings.HasPrefix(model, "gpt-5.6"):
@@ -2113,12 +2116,12 @@ func applyAutomaticRouteModelMetadata(spec *apiKeySpec, model map[string]any, sl
 // officialAutomaticModelDisplayName 返回 Cockpit 对官方命名空间模型的展示名。
 func officialAutomaticModelDisplayName(slug string) string {
 	switch strings.ToLower(strings.TrimSpace(slug)) {
+	case "gpt-6-astra":
+		return "GPT-6 Astra"
 	case "gpt-6-sol":
 		return "GPT-6 Sol"
 	case "gpt-6-luna":
 		return "GPT-6 Luna"
-	case "gpt-6-astra":
-		return "GPT-6 Astra"
 	case "gpt-5.6-sol":
 		return "GPT-5.6 Sol"
 	case "gpt-5.6-terra":
@@ -2192,10 +2195,6 @@ func hydrateCodexCompatibilityModels(models []map[string]any) {
 
 func displayNameForModel(model string) string {
 	switch model {
-	case "gpt-6-sol":
-		return "GPT-6 Sol"
-	case "gpt-6-luna":
-		return "GPT-6 Luna"
 	case "gpt-5-codex":
 		return "GPT-5 Codex"
 	case "gpt-5-codex-mini":
@@ -2208,6 +2207,10 @@ func displayNameForModel(model string) string {
 		return "GPT-5.6 Luna"
 	case "gpt-6-astra":
 		return "GPT-6 Astra"
+	case "gpt-6-sol":
+		return "GPT-6 Sol"
+	case "gpt-6-luna":
+		return "GPT-6 Luna"
 	case codexReserveModel:
 		return "GPT-5.6 Reserve"
 	case "gpt-5.5":
@@ -2377,7 +2380,7 @@ func rewriteBodyModel(m *manifest, spec *apiKeySpec, requestKind string, body []
 	if isImageRequestKind(requestKind) {
 		return nil, model, nil
 	}
-	// 宿主内部请求（唤醒）的模型由 Cockpit 自己选定，
+	// 宿主内部请求（唤醒、鹈鹕测试）的模型由 Cockpit 自己选定，
 	// 必须绕过对外 API 的模型可见性与排除规则，否则关闭某个模型会连带打断唤醒任务。
 	if spec != nil && spec.Internal {
 		return nil, model, nil

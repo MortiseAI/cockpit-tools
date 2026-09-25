@@ -1193,6 +1193,18 @@ const CODEX_LOCAL_ACCESS_PRICE_BOOK: &[CodexLocalAccessPriceBookEntry] = &[
         priority: Some(codex_price(20.0, 2.0, 100.0)),
     },
     CodexLocalAccessPriceBookEntry {
+        model_id: "gpt-6-sol",
+        session_long_context: true,
+        standard: codex_price(2.0, 0.2, 10.0),
+        priority: Some(codex_price(4.0, 0.4, 20.0)),
+    },
+    CodexLocalAccessPriceBookEntry {
+        model_id: "gpt-6-luna",
+        session_long_context: true,
+        standard: codex_price(0.1, 0.01, 0.5),
+        priority: Some(codex_price(0.2, 0.02, 1.0)),
+    },
+    CodexLocalAccessPriceBookEntry {
         model_id: "gpt-5.6-sol",
         session_long_context: true,
         standard: codex_price(5.0, 0.5, 30.0),

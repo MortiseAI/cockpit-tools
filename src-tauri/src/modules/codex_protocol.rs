@@ -518,7 +518,18 @@ fn build_codex_client_model(model_id: &str, index: usize) -> Value {
         "comp_hash".to_string(),
         Value::String(CODEX_CLIENT_COMP_HASH.to_string()),
     );
+    apply_deepseek_multi_agent_capability(&mut model);
     model
+}
+
+/// 只为已适配的 DeepSeek 模型补协作声明；必须在模板覆盖之后调用。
+pub(crate) fn apply_deepseek_multi_agent_capability(model: &mut Value) {
+    let slug = model.get("slug").and_then(Value::as_str).unwrap_or_default();
+    let id = slug.trim().rsplit('/').next().unwrap_or_default().to_ascii_lowercase();
+    if !matches!(id.as_str(), "deepseek-flash" | "deepseek-v4-flash" | "deepseek-v4-pro") {
+        return;
+    }
+    model["multi_agent_version"] = json!("v2");
 }
 
 fn codex_client_model_catalog() -> &'static Value {
@@ -662,9 +673,9 @@ fn display_name_for_model(model_id: &str) -> String {
         "gpt-5.4-mini" => "GPT-5.4 Mini".to_string(),
         "gpt-5.3-codex" => "GPT-5.3 Codex".to_string(),
         "gpt-5.3-codex-spark" => "GPT-5.3 Codex Spark".to_string(),
-        "gpt-6-astra" => "6 Astra".to_string(),
-        "gpt-6-sol" => "6 Sol".to_string(),
-        "gpt-6-luna" => "6 Luna".to_string(),
+        "gpt-6-astra" => "GPT-6 Astra".to_string(),
+        "gpt-6-sol" => "GPT-6 Sol".to_string(),
+        "gpt-6-luna" => "GPT-6 Luna".to_string(),
         "gpt-5.2" => "GPT-5.2".to_string(),
         "gpt-5.2-codex" => "GPT-5.2 Codex".to_string(),
         "gpt-5.1-codex-max" => "GPT-5.1 Codex Max".to_string(),
@@ -1163,6 +1174,21 @@ fn remove_unsupported_responses_fields(obj: &mut Map<String, Value>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deepseek_multi_agent_catalog_is_scoped_and_preserves_identity() {
+        for slug in ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro", "relay/deepseek-v4-pro"] {
+            let model = build_codex_client_model(slug, 0);
+            assert_eq!(model["slug"], json!(slug));
+            assert_eq!(model["multi_agent_version"], json!("v2"));
+        }
+        for slug in ["gpt-5.5", "gpt-5.6-luna", "gpt-reserve", "grok-4.6", "glm-4.6", "deepseek-custom"] {
+            let mut model = build_codex_client_model(slug, 0);
+            let before = model.clone();
+            apply_deepseek_multi_agent_capability(&mut model);
+            assert_eq!(model, before, "{slug}");
+        }
+    }
 
     #[test]
     fn grok_models_declare_multi_agent_capability() {
@@ -1985,10 +2011,12 @@ mod tests {
 
     #[test]
     fn gpt_6_sol_luna_separate_codex_and_api_capabilities() {
-        for (id, ultra) in [("gpt-6-sol", true), ("gpt-6-luna", false)] {
+        for (id, ultra, priority) in [("gpt-6-sol", true, 1), ("gpt-6-luna", false, 2)] {
             let response =
                 build_codex_client_models_response(&[id.to_string(), format!("openai/{id}")]);
             let model = &response["models"][0];
+            assert_eq!(model["priority"], priority);
+            assert_eq!(model["display_name"], display_name_for_model(id));
             assert_eq!(model["context_window"], 272_000);
             assert_eq!(model["max_context_window"], 872_000);
             assert_eq!(model["use_responses_lite"], true);
@@ -2110,7 +2138,7 @@ mod tests {
 
         assert_eq!(
             priorities,
-            vec![Some(1), Some(2), Some(3), Some(7), Some(16), Some(23)]
+            vec![Some(4), Some(7), Some(8), Some(12), Some(16), Some(23)]
         );
     }
 

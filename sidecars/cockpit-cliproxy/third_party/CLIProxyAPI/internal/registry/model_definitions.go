@@ -60,7 +60,7 @@ func GetAIStudioModels() []*ModelInfo {
 
 // GetCodexFreeModels returns model definitions for the Codex free plan tier.
 func GetCodexFreeModels() []*ModelInfo {
-	return upsertModelInfos(WithCodexBuiltins(cloneModelInfos(getModels().CodexFree)), codexBuiltinGPT6ModelInfo(codexBuiltinGPT6LunaModelID))
+	return upsertModelInfos(WithCodexBuiltins(cloneModelInfos(getModels().CodexFree)), codexBuiltinGPT6LunaModelInfo())
 }
 
 // Go has the existing team catalog, but GPT-6 Sol is only available on higher plans.
@@ -147,12 +147,18 @@ func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
 // withCodexPaidBuiltins keeps paid Codex model availability stable when the
 // remote static model catalog is older than the shipped client catalog.
 func withCodexPaidBuiltins(models []*ModelInfo) []*ModelInfo {
-	return prioritizeModelInfoByID(
-		upsertModelInfos(WithCodexBuiltins(models), codexBuiltinGPT6AstraModelInfo(),
-			codexBuiltinGPT6ModelInfo(codexBuiltinGPT6SolModelID),
-			codexBuiltinGPT6ModelInfo(codexBuiltinGPT6LunaModelID)),
-		codexBuiltinGPT6AstraModelID,
+	models = upsertModelInfos(
+		WithCodexBuiltins(models),
+		codexBuiltinGPT6AstraModelInfo(),
+		codexBuiltinGPT6SolModelInfo(),
+		codexBuiltinGPT6LunaModelInfo(),
 	)
+	// Promote the shipped GPT-6 family to the front in astra, sol, luna order.
+	// Applying the single-model helper from the last ID backwards leaves the
+	// relative order of every other model untouched.
+	models = prioritizeModelInfoByID(models, codexBuiltinGPT6LunaModelID)
+	models = prioritizeModelInfoByID(models, codexBuiltinGPT6SolModelID)
+	return prioritizeModelInfoByID(models, codexBuiltinGPT6AstraModelID)
 }
 
 // WithXAIBuiltins injects hard-coded xAI image/video model definitions that should
@@ -236,7 +242,7 @@ func codexBuiltinGPT6AstraModelInfo() *ModelInfo {
 		Created:                   1788480000, // 2026-09-04
 		OwnedBy:                   "openai",
 		Type:                      "openai",
-		DisplayName:               "6 Astra",
+		DisplayName:               "GPT-6 Astra",
 		Version:                   codexBuiltinGPT6AstraModelID,
 		Description:               "Our most capable model, built for the hardest end-to-end work.",
 		ContextLength:             1050000,
@@ -248,23 +254,41 @@ func codexBuiltinGPT6AstraModelInfo() *ModelInfo {
 	}
 }
 
-// Registry limits describe the public model; Codex client context defaults live
-// in codex_client_models.json. Reasoning levels here are for the Codex executor.
-func codexBuiltinGPT6ModelInfo(id string) *ModelInfo {
-	name, description := "6 Luna", "Our most efficient model for focused, high-volume tasks."
-	levels := []string{"low", "medium", "high", "xhigh", "max"}
-	if id == codexBuiltinGPT6SolModelID {
-		name, description = "6 Sol", "Built to power complex coding and agentic workflows."
-		levels = append(levels, "ultra")
-	}
+func codexBuiltinGPT6SolModelInfo() *ModelInfo {
 	return &ModelInfo{
-		ID: id, Object: "model", Created: 1790035200, // 2026-09-22
-		OwnedBy: "openai", Type: "openai", DisplayName: name, Version: id,
-		Description: description, ContextLength: 1050000, MaxCompletionTokens: 128000,
+		ID:                        codexBuiltinGPT6SolModelID,
+		Object:                    "model",
+		Created:                   1790035200, // 2026-09-22
+		OwnedBy:                   "openai",
+		Type:                      "openai",
+		DisplayName:               "GPT-6 Sol",
+		Version:                   codexBuiltinGPT6SolModelID,
+		Description:               "Built to power complex coding and agentic workflows.",
+		ContextLength:             1050000,
+		MaxCompletionTokens:       128000,
 		SupportedParameters:       []string{"tools"},
 		SupportedInputModalities:  []string{"text", "image"},
 		SupportedOutputModalities: []string{"text"},
-		Thinking:                  &ThinkingSupport{Levels: levels},
+		Thinking:                  &ThinkingSupport{Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	}
+}
+
+func codexBuiltinGPT6LunaModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:                        codexBuiltinGPT6LunaModelID,
+		Object:                    "model",
+		Created:                   1790035200, // 2026-09-22
+		OwnedBy:                   "openai",
+		Type:                      "openai",
+		DisplayName:               "GPT-6 Luna",
+		Version:                   codexBuiltinGPT6LunaModelID,
+		Description:               "Our most efficient model for focused, high-volume tasks.",
+		ContextLength:             1050000,
+		MaxCompletionTokens:       128000,
+		SupportedParameters:       []string{"tools"},
+		SupportedInputModalities:  []string{"text", "image"},
+		SupportedOutputModalities: []string{"text"},
+		Thinking:                  &ThinkingSupport{Levels: []string{"low", "medium", "high", "xhigh", "max"}},
 	}
 }
 
@@ -492,10 +516,11 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 	if strings.EqualFold(strings.TrimSpace(modelID), codexBuiltinGPT6AstraModelID) {
 		return cloneModelInfo(codexBuiltinGPT6AstraModelInfo())
 	}
-	for _, id := range []string{codexBuiltinGPT6SolModelID, codexBuiltinGPT6LunaModelID} {
-		if strings.EqualFold(strings.TrimSpace(modelID), id) {
-			return codexBuiltinGPT6ModelInfo(id)
-		}
+	if strings.EqualFold(strings.TrimSpace(modelID), codexBuiltinGPT6SolModelID) {
+		return cloneModelInfo(codexBuiltinGPT6SolModelInfo())
+	}
+	if strings.EqualFold(strings.TrimSpace(modelID), codexBuiltinGPT6LunaModelID) {
+		return cloneModelInfo(codexBuiltinGPT6LunaModelInfo())
 	}
 
 	return nil

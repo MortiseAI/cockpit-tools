@@ -544,9 +544,9 @@ fn insert_local_access_usage_event(
         .as_deref()
         .and_then(normalize_recorded_reasoning_effort)
         .unwrap_or_default();
-    // state 只记录长度与分级，原文不入库。
-    let turn_state_length = event.turn_state_length.filter(|value| *value > 0);
-    let turn_state_class = normalize_turn_state_class(event.turn_state_class.as_deref()).unwrap_or_default();
+    // 风控检测已移除：列结构保留以兼容历史库，但不再写入新的 state 观测值。
+    let turn_state_length: Option<i64> = None;
+    let turn_state_class = "";
     let token_breakdown_json = serialize_token_breakdown_for_db(event.token_breakdown.as_ref());
     if has_service_tier_column && has_reasoning_effort_column {
         conn.execute(
@@ -1538,13 +1538,6 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
     let service_tier: String = row.get("service_tier")?;
     let response_service_tier: String = row.get("response_service_tier").unwrap_or_default();
     let reasoning_effort: String = row.get::<_, String>("reasoning_effort").unwrap_or_default();
-    // 旧库或旧 SELECT 可能没有这两列，读取失败时按「无观测」处理。
-    let turn_state_length: Option<i64> = row
-        .get::<_, Option<i64>>("turn_state_length")
-        .unwrap_or(None);
-    let turn_state_class: String = row
-        .get::<_, String>("turn_state_class")
-        .unwrap_or_default();
     let success: i64 = row.get("success")?;
     let http_status: Option<i64> = row.get("http_status")?;
     let gateway_mode: String = row.get("gateway_mode")?;
@@ -1574,9 +1567,6 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
         response_service_tier: normalize_recorded_service_tier(response_service_tier.as_str())
             .map(str::to_string),
         reasoning_effort: normalize_recorded_reasoning_effort(reasoning_effort.as_str())
-            .map(str::to_string),
-        turn_state_length: turn_state_length.filter(|value| *value > 0),
-        turn_state_class: normalize_turn_state_class(Some(turn_state_class.as_str()))
             .map(str::to_string),
         success: success != 0,
         http_status: http_status.and_then(|value| u16::try_from(value).ok()),
@@ -2370,7 +2360,7 @@ fn append_usage_event(
     model_pricing_version: u64,
     estimated_cost_usd: f64,
 ) -> CodexLocalAccessUsageEvent {
-    append_usage_event_with_turn_state(
+    append_usage_event_with_meta(
         events,
         now,
         request_id,
@@ -2396,12 +2386,10 @@ fn append_usage_event(
         pricing,
         model_pricing_version,
         estimated_cost_usd,
-        None,
-        None,
     )
 }
 
-fn append_usage_event_with_turn_state(
+fn append_usage_event_with_meta(
     events: &mut Vec<CodexLocalAccessUsageEvent>,
     now: i64,
     request_id: Option<&str>,
@@ -2427,8 +2415,6 @@ fn append_usage_event_with_turn_state(
     pricing: Option<&CodexLocalAccessModelPricing>,
     model_pricing_version: u64,
     estimated_cost_usd: f64,
-    turn_state_length: Option<i64>,
-    turn_state_class: Option<&str>,
 ) -> CodexLocalAccessUsageEvent {
     let usage = usage.cloned().unwrap_or_default();
     let model_id = model_id.unwrap_or_default().trim().to_string();
@@ -2462,9 +2448,6 @@ fn append_usage_event_with_turn_state(
         reasoning_effort: reasoning_effort
             .and_then(normalize_recorded_reasoning_effort)
             .map(str::to_string),
-        // 只保留长度与分级；state 原文（含观测到的那一份）不进入任何持久化结构。
-        turn_state_length: turn_state_length.filter(|value| *value > 0),
-        turn_state_class: normalize_turn_state_class(turn_state_class).map(str::to_string),
         success,
         http_status,
         error_category: error_category.unwrap_or_default().trim().to_string(),
