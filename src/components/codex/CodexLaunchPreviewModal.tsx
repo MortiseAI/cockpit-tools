@@ -27,7 +27,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
-import { useEscClose } from "../../hooks/useEscClose";
+import { useEscCloseTopmost } from "../../hooks/useEscClose";
+import { useModalFocusTrap } from "../../hooks/useModalFocusTrap";
+import { resolveStoredCompactLimitInput } from "../../utils/codexModelContext";
 import {
   saveCodexInstanceQuickConfig,
   saveCodexInstanceConfiguration,
@@ -87,7 +89,7 @@ import {
   type DeepSeekAccessMode,
 } from "../../utils/codexDeepSeekAccess";
 import { CodexImageAccountPickerModal } from "./CodexImageAccountPickerModal";
-import { getCodexJwtExpiration } from "../../utils/codexSwitchAuthFailure";
+import { getCodexJwtExpiration, isCodexAccountReauthRequired, isCodexRefreshTokenReauthReason } from "../../utils/codexSwitchAuthFailure";
 import type { UnifiedQuotaMetric } from "../../presentation/platformAccountPresentation";
 import { buildCodexAccountPresentation } from "../../presentation/platformAccountPresentation";
 import { ModalErrorMessage, useModalErrorState } from "../ModalErrorMessage";
@@ -103,6 +105,8 @@ import {
 import { CodexExperimentalModelEditor } from "./CodexExperimentalModelEditor";
 import { getCodexExperimentalModelErrorMessage } from "../../utils/codexExperimentalModel";
 import { CodexSessionVisibilityRepairModal } from "./CodexSessionVisibilityRepairModal";
+import { CodexSpeedControl } from "./CodexSpeedControl";
+import { useLaunchPreviewChildReturnFocus } from "./useLaunchPreviewChildReturnFocus";
 import "./CodexLaunchPreviewModal.css";
 
 export const DEFAULT_CODEX_INSTANCE_ID = "__default__";
@@ -191,6 +195,7 @@ interface ModelConfigSnapshot {
   enabled: boolean;
   models: CodexExperimentalModelDefinition[];
   defaultModelId: string | null;
+  routingRoutes: CodexInstanceApiRoute[];
 }
 
 interface ContextConfigSnapshot {
@@ -221,6 +226,12 @@ export function CodexLaunchPreviewModal({
   const [apiServiceLaunchMode, setApiServiceLaunchMode] = useState(
     initialApiServiceLaunchMode,
   );
+  const dialog = useRef<HTMLDivElement>(null);
+  const accessModeDialog = useRef<HTMLDivElement>(null);
+  const imageModeDialog = useRef<HTMLDivElement>(null);
+  const refreshDialog = useRef<HTMLDivElement>(null);
+  const modelDialog = useRef<HTMLDivElement>(null);
+  const contextDialog = useRef<HTMLDivElement>(null);
   const [loadedConfig, setLoadedConfig] = useState<CodexQuickConfig | null>(
     null,
   );
@@ -243,6 +254,7 @@ export function CodexLaunchPreviewModal({
   const configWritePending = useRef(false);
   const retainDraftOnReload = useRef(false);
   const [saving, setSaving] = useState(false);
+  const [speedSaving, setSpeedSaving] = useState(false);
   const [changingInstance, setChangingInstance] = useState(false);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
   const [executing, setExecuting] = useState<"switch" | "launch" | null>(null);
@@ -253,6 +265,7 @@ export function CodexLaunchPreviewModal({
   const [manualRefreshResult, setManualRefreshResult] = useState<{
     status: "running" | "success" | "error";
     error?: string;
+    requiresReauth?: boolean;
   } | null>(null);
   const [manualRefreshedAccount, setManualRefreshedAccount] =
     useState<CodexAccount | null>(null);
@@ -288,6 +301,15 @@ export function CodexLaunchPreviewModal({
   );
   const [imageGenPickerOpen, setImageGenPickerOpen] = useState(false);
   const [imageGenModeSwitchOpen, setImageGenModeSwitchOpen] = useState(false);
+  const childDialogOpen = repairOpen || modelConfigOpen || contextConfigOpen ||
+    deepSeekAccessModeDialogOpen || imageGenPickerOpen || imageGenModeSwitchOpen || Boolean(manualRefreshResult);
+  useModalFocusTrap(dialog, true, true, !childDialogOpen);
+  useModalFocusTrap(accessModeDialog, deepSeekAccessModeDialogOpen);
+  useModalFocusTrap(imageModeDialog, imageGenModeSwitchOpen);
+  useModalFocusTrap(refreshDialog, Boolean(manualRefreshResult));
+  useModalFocusTrap(modelDialog, modelConfigOpen);
+  useModalFocusTrap(contextDialog, contextConfigOpen);
+  const rememberChildTrigger = useLaunchPreviewChildReturnFocus(dialog, childDialogOpen);
   const accountId = account?.id ?? null;
 
   useEffect(() => {
@@ -371,6 +393,7 @@ export function CodexLaunchPreviewModal({
   } = useModalErrorState();
 
   const busy =
+    speedSaving ||
     saving ||
     changingInstance ||
     runningActionId !== null ||
@@ -378,10 +401,16 @@ export function CodexLaunchPreviewModal({
     executing !== null;
   const configBusy = busy || checkingConfig || !configReady;
   const requestClose = useCallback(() => {
+    // 只把本弹框自己的子弹框（codex-launch-preview-* 系列）视为“还叠着一层”：
+    // 启动进度弹框、Windows 操作提示等全局弹框不是它的子级，不应该让「关闭」失效。
     const hasStackedModal = Array.from(
       document.querySelectorAll<HTMLElement>(".modal-overlay"),
-    ).some(
-      (element) => !element.classList.contains("codex-launch-preview-overlay"),
+    ).some((element) =>
+      Array.from(element.classList).some(
+        (className) =>
+          className.startsWith("codex-launch-preview-") &&
+          className !== "codex-launch-preview-overlay",
+      ),
     );
     if (!hasStackedModal) {
       // Invalidate pending read-before-write work synchronously, before React
@@ -390,7 +419,7 @@ export function CodexLaunchPreviewModal({
       onClose();
     }
   }, [onClose]);
-  useEscClose(
+  useEscCloseTopmost(
     !busy &&
       !repairOpen &&
       !modelConfigOpen &&
@@ -399,12 +428,12 @@ export function CodexLaunchPreviewModal({
       !imageGenPickerOpen &&
       !imageGenModeSwitchOpen &&
       !manualRefreshResult,
-    requestClose,
+    requestClose, dialog,
   );
-  useEscClose(deepSeekAccessModeDialogOpen, () =>
-    setDeepSeekAccessModeDialogOpen(false),
+  useEscCloseTopmost(deepSeekAccessModeDialogOpen, () =>
+    setDeepSeekAccessModeDialogOpen(false), accessModeDialog,
   );
-  useEscClose(imageGenModeSwitchOpen, () => setImageGenModeSwitchOpen(false));
+  useEscCloseTopmost(imageGenModeSwitchOpen, () => setImageGenModeSwitchOpen(false), imageModeDialog);
 
   const applyLoadedConfig = useCallback((config: CodexQuickConfig) => {
     setLoadedConfig(config);
@@ -419,7 +448,8 @@ export function CodexLaunchPreviewModal({
       contextWindow !== undefined || compactLimit !== undefined,
     );
     setContextWindowInput(contextWindow?.toString() ?? "");
-    setCompactLimitInput(compactLimit?.toString() ?? "");
+    // 存量配置里压缩阈值缺失、等于或超过上下文时按 90% 归一，避免带出非法配对。
+    setCompactLimitInput(resolveStoredCompactLimitInput(contextWindow, compactLimit));
     setModelsError(null);
   }, []);
 
@@ -796,7 +826,9 @@ export function CodexLaunchPreviewModal({
           experimentalModelCatalogDefaultModelId: nextCatalog.defaultModelId,
         });
         saved = result.quickConfig;
-        setLoadedInstanceKey(codexLaunchPreviewInstanceConfigKey(result.instance));
+        if (session === configSession.current) {
+          setLoadedInstanceKey(codexLaunchPreviewInstanceConfigKey(result.instance));
+        }
         useCodexInstanceStore.setState({
           instances: useCodexInstanceStore.getState().instances.map((item) =>
             item.id === result.instance.id ? result.instance : item),
@@ -812,6 +844,9 @@ export function CodexLaunchPreviewModal({
         );
       }
       rememberCodexLaunchPreviewConfig(instanceId, saved);
+      // A dispatched write may finish after Close. Keep shared snapshots current,
+      // but do not revive the dismissed preview or continue its launch/switch.
+      if (session !== configSession.current) return false;
       applyLoadedConfig(saved);
       setRoutingRoutes(normalizedRoutingRoutes);
       setNotice(routingDirty
@@ -881,8 +916,9 @@ export function CodexLaunchPreviewModal({
   const handleExecute = useCallback(
     async (launchAfterSwitch: boolean) => {
       if (configBusy) return;
+      const session = configSession.current;
       const saved = await persistDraft();
-      if (!saved) return;
+      if (!saved || session !== configSession.current) return;
       setExecuting(launchAfterSwitch ? "launch" : "switch");
       setNotice(null);
       setError(null);
@@ -904,6 +940,8 @@ export function CodexLaunchPreviewModal({
         if (!started) setExecuting(null);
       } catch (executeError) {
         setError(String(executeError).replace(/^Error:\s*/, ""));
+      } finally {
+        // 启动事务超时或长期不返回时，按钮不能永久停在“加载中”状态。
         setExecuting(null);
       }
     },
@@ -1084,23 +1122,26 @@ export function CodexLaunchPreviewModal({
       label: string,
       token: string | undefined,
       refreshLeadSeconds: number,
+      affectsAuthorization = true,
     ): CodexLaunchPreviewFact => {
       const expiresAt = getCodexJwtExpiration(token?.trim() || "");
       return {
         label,
         value: formatExpiry(expiresAt),
         tone:
-          expiresAt !== null && expiresAt <= nowSeconds
-            ? "danger"
-            : expiresAt !== null && expiresAt <= nowSeconds + refreshLeadSeconds
-              ? "warning"
-              : undefined,
+          !affectsAuthorization
+            ? undefined
+            : expiresAt !== null && expiresAt <= nowSeconds
+              ? "danger"
+              : expiresAt !== null && expiresAt <= nowSeconds + refreshLeadSeconds
+                ? "warning"
+                : undefined,
       };
     };
 
     return [
       buildFact("access_token", tokenAccount.tokens?.access_token, 5 * 60),
-      buildFact("id_token", tokenAccount.tokens?.id_token, 10 * 60),
+      buildFact("id_token", tokenAccount.tokens?.id_token, 10 * 60, false),
     ];
   }, [account, i18n.language, i18n.resolvedLanguage, manualRefreshedAccount, t]);
   const displayFacts = [
@@ -1138,9 +1179,10 @@ export function CodexLaunchPreviewModal({
 
   const openModelConfig = useCallback(async () => {
     if (configBusy || unavailable) return;
-    // 混合模型路由需要实例自己的可见模型清单，但不应替用户开启「模型管理」：
-    // 这种情况下只打开编辑器维护路由模型，开关状态保持不变。
-    if (!catalogEnabled && !routingEnabled) {
+    const session = configSession.current;
+    // Per-model edits require the catalog persistence policy. Ask explicitly even
+    // with mixed routing enabled, otherwise the backend discards the draft.
+    if (!catalogEnabled) {
       const confirmed = await confirmDialog(
         t("codex.modelManagement.enableConfirmDescription"),
         {
@@ -1150,7 +1192,7 @@ export function CodexLaunchPreviewModal({
           kind: "warning",
         },
       );
-      if (!confirmed) return;
+      if (!confirmed || session !== configSession.current) return;
     }
     setModelConfigSnapshot({
       enabled: catalogEnabled,
@@ -1161,10 +1203,13 @@ export function CodexLaunchPreviewModal({
           : undefined,
       })),
       defaultModelId,
+      routingRoutes: routingRoutes.map((route) => ({
+        ...route,
+        selectedModels: route.selectedModels?.slice(),
+        extraModels: route.extraModels?.slice(),
+      })),
     });
-    if (!routingEnabled) {
-      setCatalogEnabled(true);
-    }
+    setCatalogEnabled(true);
     setNotice(null);
     setError(null);
     setModelConfigOpen(true);
@@ -1173,8 +1218,9 @@ export function CodexLaunchPreviewModal({
     catalogEnabled,
     defaultModelId,
     models,
-    routingEnabled,
+    routingRoutes,
     setError,
+    t,
     unavailable,
   ]);
 
@@ -1189,9 +1235,10 @@ export function CodexLaunchPreviewModal({
       ) {
         return;
       }
+      const session = configSession.current;
       if (configReady) {
         const saved = await persistDraft();
-        if (!saved) return;
+        if (!saved || session !== configSession.current) return;
       }
       setChangingInstance(true);
       setNotice(null);
@@ -1210,20 +1257,18 @@ export function CodexLaunchPreviewModal({
   const closeModelConfig = useCallback(
     (apply: boolean) => {
       if (apply) {
-        // 混合模型路由下这里只应用路由模型改动，不替用户打开「模型管理」。
-        if (!routingEnabled) {
-          setCatalogEnabled(true);
-        }
+        setCatalogEnabled(true);
       } else if (modelConfigSnapshot) {
         setCatalogEnabled(modelConfigSnapshot.enabled);
         setModels(modelConfigSnapshot.models);
         setDefaultModelId(modelConfigSnapshot.defaultModelId);
+        setRoutingRoutes(modelConfigSnapshot.routingRoutes);
       }
       setModelConfigSnapshot(null);
       setModelConfigOpen(false);
       setModelsError(null);
     },
-    [modelConfigSnapshot, routingEnabled],
+    [modelConfigSnapshot],
   );
 
   const openContextConfig = useCallback(() => {
@@ -1319,6 +1364,7 @@ export function CodexLaunchPreviewModal({
         defaultModelId,
       );
       rememberCodexLaunchPreviewConfig(instanceId, saved);
+      if (session !== configSession.current) return;
       applyLoadedConfig(saved);
       setContextConfigSnapshot(null);
       setContextConfigOpen(false);
@@ -1382,9 +1428,12 @@ export function CodexLaunchPreviewModal({
       setManualRefreshedAccount(refreshed);
       setManualRefreshResult({ status: "success" });
     } catch (refreshError) {
+      const errorMessage = String(refreshError).replace(/^Error:\s*/, "");
+      const latestAccount = useCodexAccountStore.getState().accounts.find((item) => item.id === account.id) ?? account;
       setManualRefreshResult({
         status: "error",
-        error: String(refreshError).replace(/^Error:\s*/, ""),
+        error: errorMessage,
+        requiresReauth: isCodexRefreshTokenReauthReason(errorMessage) || isCodexAccountReauthRequired(latestAccount),
       });
     } finally {
       setForceRefreshing(false);
@@ -1396,8 +1445,12 @@ export function CodexLaunchPreviewModal({
     setManualRefreshResult(null);
   }, [forceRefreshing]);
 
+  useEscCloseTopmost(modelConfigOpen && !busy, () => closeModelConfig(false), modelDialog);
+  useEscCloseTopmost(contextConfigOpen && !busy && !contextConfigSaving, () => closeContextConfig(false), contextDialog);
+  useEscCloseTopmost(Boolean(manualRefreshResult) && !forceRefreshing, closeManualRefreshResult, refreshDialog);
+
   const handleManualRefreshReauthorize = useCallback(() => {
-    if (!account || forceRefreshing) return;
+    if (!account || forceRefreshing || !manualRefreshResult?.requiresReauth) return;
     setManualRefreshResult(null);
     onClose();
     window.dispatchEvent(
@@ -1413,7 +1466,7 @@ export function CodexLaunchPreviewModal({
           }
         : {}),
     });
-  }, [account, forceRefreshing, instanceId, mode, onClose]);
+  }, [account, forceRefreshing, instanceId, mode, onClose, manualRefreshResult?.requiresReauth]);
 
   const renderFooterAction = (action: CodexLaunchPreviewAction) => (
     <div
@@ -1514,14 +1567,14 @@ export function CodexLaunchPreviewModal({
 
   return (
     <>
-      <div className="modal-overlay codex-launch-preview-overlay">
-        <div className="modal codex-launch-preview-modal">
+      <div className="modal-overlay codex-launch-preview-overlay" inert={childDialogOpen} aria-hidden={childDialogOpen || undefined}>
+        <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="codex-launch-preview-title" className="modal codex-launch-preview-modal">
           <div className="modal-header">
             <div className="codex-launch-preview-title-icon">
               <Play size={18} />
             </div>
             <div className="codex-launch-preview-heading">
-              <h2>{t("codex.launchPreview.title")}</h2>
+              <h2 id="codex-launch-preview-title">{t("codex.launchPreview.title")}</h2>
             </div>
             <button
               type="button"
@@ -1590,6 +1643,11 @@ export function CodexLaunchPreviewModal({
                   </div>
                 </div>
                 <div className="codex-launch-preview-summary-controls">
+                  <CodexSpeedControl
+                    key={`${mode}:${instanceId}:${accountId}`}
+                    scope={mode === "apiService" ? "api" : mode === "instance" ? "instance" : "account"}
+                    account={account} instanceId={instanceId} disabled={busy && !speedSaving}
+                    onSavingChange={setSpeedSaving} onError={setError} />
                   <div
                     className={`codex-launch-preview-target${
                       mode === "apiService" || (instanceOptions?.length && onInstanceChange)
@@ -1658,6 +1716,9 @@ export function CodexLaunchPreviewModal({
                 </p>
               )}
 
+              <p className="codex-launch-preview-token-note">
+                {t(mode === "apiService" ? "codex.speed.apiHint" : "codex.speed.launchHint")}
+              </p>
               {displayFacts.length > 0 && (
                 <div className="codex-launch-preview-facts">
                   {displayFacts.map((fact, index) => (
@@ -1680,6 +1741,12 @@ export function CodexLaunchPreviewModal({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {tokenExpiryFacts.length > 0 && (
+                <p className="codex-launch-preview-token-note">
+                  {t("codex.launchPreview.tokenExpiryDescription")}
+                </p>
               )}
 
               {summary?.usage &&
@@ -1790,7 +1857,7 @@ export function CodexLaunchPreviewModal({
                   <button
                     type="button"
                     className="btn btn-outline btn-sm codex-launch-preview-tool-action codex-launch-preview-dropdown-trigger"
-                    onClick={() => setDeepSeekAccessModeDialogOpen(true)}
+                    onClick={(event) => { rememberChildTrigger(event); setDeepSeekAccessModeDialogOpen(true); }}
                     disabled={busy || providerAccessModeReadOnly || !canChooseDeepSeekAccessMode}
                   >
                     <span>
@@ -1863,6 +1930,7 @@ export function CodexLaunchPreviewModal({
                             setImageGenAccountIds([]);
                             return;
                           }
+                          rememberChildTrigger(event);
                           if (!imageGenAvailable) {
                             setImageGenModeSwitchOpen(true);
                             return;
@@ -1877,7 +1945,7 @@ export function CodexLaunchPreviewModal({
                       type="button"
                       className="btn btn-outline btn-sm codex-launch-preview-tool-action"
                       disabled={busy || providerAccessModeReadOnly || !imageGenEnabled}
-                      onClick={() => setImageGenPickerOpen(true)}
+                      onClick={(event) => { rememberChildTrigger(event); setImageGenPickerOpen(true); }}
                     >
                       {t("codex.deepSeek.start.imageGenPick", "选择 GPT 账号")}
                     </button>
@@ -2034,7 +2102,7 @@ export function CodexLaunchPreviewModal({
                   <button
                     type="button"
                     className="btn btn-outline btn-sm codex-launch-preview-tool-action"
-                    onClick={() => void handleForceRefresh()}
+                    onClick={(event) => { rememberChildTrigger(event); void handleForceRefresh(); }}
                     disabled={
                       busy || !account || !isStandardCodexOAuthAccount(account)
                     }
@@ -2064,7 +2132,7 @@ export function CodexLaunchPreviewModal({
                       {loading
                         ? t("common.loading", "加载中...")
                         : contextOverridePreset === "preset_516k"
-                          ? "516K / 460K"
+                          ? "516K / 464K"
                           : contextOverridePreset === "preset_1m"
                             ? "1M / 900K"
                             : contextOverridePreset === "custom"
@@ -2084,7 +2152,7 @@ export function CodexLaunchPreviewModal({
                 <button
                   type="button"
                   className="btn btn-outline btn-sm codex-launch-preview-tool-action"
-                  onClick={openContextConfig}
+                  onClick={(event) => { rememberChildTrigger(event); openContextConfig(); }}
                   disabled={configBusy}
                 >
                   {contextOverrideEnabled
@@ -2152,7 +2220,7 @@ export function CodexLaunchPreviewModal({
                   <button
                     type="button"
                     className="btn btn-outline btn-sm codex-launch-preview-tool-action"
-                    onClick={() => void openModelConfig()}
+                    onClick={(event) => { rememberChildTrigger(event); void openModelConfig(); }}
                     disabled={configBusy || Boolean(unavailable)}
                   >
                     {catalogEnabled
@@ -2192,7 +2260,7 @@ export function CodexLaunchPreviewModal({
                 <button
                   type="button"
                   className="btn btn-outline btn-sm codex-launch-preview-tool-action"
-                  onClick={() => setRepairOpen(true)}
+                  onClick={(event) => { rememberChildTrigger(event); setRepairOpen(true); }}
                   disabled={busy}
                 >
                   {t(
@@ -2235,7 +2303,6 @@ export function CodexLaunchPreviewModal({
                   type="button"
                   className="btn btn-secondary"
                   onClick={requestClose}
-                  disabled={busy}
                 >
                   {t("common.close", "关闭")}
                 </button>
@@ -2290,6 +2357,7 @@ export function CodexLaunchPreviewModal({
       {deepSeekAccessModeDialogOpen && (
         <div className="modal-overlay codex-launch-preview-refresh-overlay">
           <div
+            ref={accessModeDialog} tabIndex={-1}
             className="modal codex-launch-preview-mode-modal"
             role="dialog"
             aria-modal="true"
@@ -2361,6 +2429,7 @@ export function CodexLaunchPreviewModal({
       {imageGenModeSwitchOpen && (
         <div className="modal-overlay codex-launch-preview-refresh-overlay">
           <div
+            ref={imageModeDialog} tabIndex={-1}
             className="modal codex-launch-preview-refresh-modal"
             role="dialog"
             aria-modal="true"
@@ -2442,6 +2511,7 @@ export function CodexLaunchPreviewModal({
       {manualRefreshResult && (
         <div className="modal-overlay codex-launch-preview-refresh-overlay">
           <div
+            ref={refreshDialog} tabIndex={-1}
             className="modal codex-launch-preview-refresh-modal"
             role="dialog"
             aria-modal="true"
@@ -2506,7 +2576,7 @@ export function CodexLaunchPreviewModal({
                   ? t("codex.launchPreview.forceRefreshRunning")
                   : t("codex.launchPreview.forceRefreshRetry", "重新检测")}
               </button>
-              {manualRefreshResult.status === "error" && (
+              {manualRefreshResult.status === "error" && manualRefreshResult.requiresReauth && (
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -2530,7 +2600,7 @@ export function CodexLaunchPreviewModal({
 
       {modelConfigOpen && (
         <div className="modal-overlay codex-launch-preview-model-config-overlay">
-          <div className="modal codex-launch-preview-model-config-modal">
+          <div ref={modelDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("codex.modelManagement.title")} className="modal codex-launch-preview-model-config-modal">
             <div className="modal-header">
               <div>
                 <h2>{t("codex.modelManagement.title", "模型管理")}</h2>
@@ -2559,6 +2629,7 @@ export function CodexLaunchPreviewModal({
                 scrollKey={errorScrollKey}
               />
               <CodexExperimentalModelEditor
+                instanceId={instanceId}
                 models={models}
                 defaultModelId={defaultModelId}
                 resetModels={loadedConfig?.experimental_model_catalog_reset_models}
@@ -2631,7 +2702,7 @@ export function CodexLaunchPreviewModal({
 
       {contextConfigOpen && (
         <div className="modal-overlay codex-launch-preview-model-config-overlay">
-          <div className="modal codex-launch-preview-model-config-modal codex-launch-preview-context-config-modal">
+          <div ref={contextDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("codex.contextOverride.title")} className="modal codex-launch-preview-model-config-modal codex-launch-preview-context-config-modal">
             <div className="modal-header">
               <div>
                 <h2>{t("codex.contextOverride.title", "上下文管理")}</h2>

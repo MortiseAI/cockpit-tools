@@ -129,6 +129,10 @@ pub(crate) fn read_official_oauth_identity(base_dir: &Path) -> Option<CodexOffic
     })
 }
 
+pub(crate) fn read_official_oauth_tokens(base_dir: &Path) -> Option<CodexTokens> {
+    load_local_oauth_snapshot_from_official_store(base_dir).map(|snapshot| snapshot.tokens)
+}
+
 /// 将官方 profile 身份与本地账号身份进行强字段优先匹配。
 ///
 /// account ID、组织 ID 和 user ID 只要双方都有就必须一致；如果没有任何强字段，
@@ -266,11 +270,20 @@ fn read_codex_keychain_auth_file_from_dir(
     Ok(None)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn read_codex_keychain_auth_file_from_dir(
     _base_dir: &Path,
 ) -> Result<Option<CodexAuthFile>, String> {
     Ok(None)
+}
+
+#[cfg(target_os = "windows")]
+fn read_codex_keychain_auth_file_from_dir(
+    base_dir: &Path,
+) -> Result<Option<CodexAuthFile>, String> {
+    windows_auth_store::read(base_dir)?
+        .map(|value| serde_json::from_value(value).map_err(|e| e.to_string()))
+        .transpose()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -278,6 +291,7 @@ enum CodexAuthCredentialsStoreMode {
     File,
     Keyring,
     Auto,
+    Ephemeral,
 }
 
 fn codex_auth_credentials_store_mode(base_dir: &Path) -> CodexAuthCredentialsStoreMode {
@@ -298,15 +312,9 @@ fn codex_auth_credentials_store_mode(base_dir: &Path) -> CodexAuthCredentialsSto
     {
         Some("keyring") => CodexAuthCredentialsStoreMode::Keyring,
         Some("auto") => CodexAuthCredentialsStoreMode::Auto,
+        Some("ephemeral") => CodexAuthCredentialsStoreMode::Ephemeral,
         _ => CodexAuthCredentialsStoreMode::File,
     }
-}
-
-fn cli_auth_credentials_store_prefers_keychain(base_dir: &Path) -> bool {
-    matches!(
-        codex_auth_credentials_store_mode(base_dir),
-        CodexAuthCredentialsStoreMode::Keyring | CodexAuthCredentialsStoreMode::Auto
-    )
 }
 
 fn load_local_oauth_snapshot_from_official_store_with_keychain_reader<F>(
@@ -316,38 +324,48 @@ fn load_local_oauth_snapshot_from_official_store_with_keychain_reader<F>(
 where
     F: FnOnce(&Path) -> Result<Option<CodexAuthFile>, String>,
 {
-    let auth_json = read_codex_auth_file_from_dir(base_dir);
-    if auth_json
-        .as_ref()
-        .map(|auth_file| is_auth_mode_apikey(auth_file.auth_mode.as_deref()))
-        .unwrap_or(false)
-    {
-        return None;
+    match codex_auth_credentials_store_mode(base_dir) {
+        CodexAuthCredentialsStoreMode::File => read_codex_auth_file_from_dir(base_dir)
+            .and_then(load_local_oauth_snapshot_from_auth_file),
+        CodexAuthCredentialsStoreMode::Ephemeral => None,
+        CodexAuthCredentialsStoreMode::Keyring => read_keychain(base_dir)
+            .ok()
+            .flatten()
+            .and_then(load_local_oauth_snapshot_from_auth_file),
+        CodexAuthCredentialsStoreMode::Auto => match read_keychain(base_dir) {
+            Ok(Some(auth)) => load_local_oauth_snapshot_from_auth_file(auth),
+            Ok(None) | Err(_) => read_codex_auth_file_from_dir(base_dir)
+                .and_then(load_local_oauth_snapshot_from_auth_file),
+        },
     }
+}
 
-    let auth_json_snapshot = auth_json.and_then(load_local_oauth_snapshot_from_auth_file);
-    let prefers_keychain = cli_auth_credentials_store_prefers_keychain(base_dir);
-    if !prefers_keychain && auth_json_snapshot.is_some() {
-        return auth_json_snapshot;
-    }
-
-    match read_keychain(base_dir) {
-        Ok(Some(auth_file)) => {
-            if let Some(snapshot) = load_local_oauth_snapshot_from_auth_file(auth_file) {
-                return Some(snapshot);
-            }
+/// One authoritative raw-store selection for OAuth, API keys and identity logins.
+fn read_configured_codex_auth_value(base_dir: &Path) -> Result<Option<serde_json::Value>, String> {
+    let read_file = || -> Result<Option<serde_json::Value>, String> {
+        match fs::read(base_dir.join("auth.json")) {
+            Ok(raw) => serde_json::from_slice(&raw)
+                .map(Some)
+                .map_err(|e| e.to_string()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.to_string()),
         }
-        Ok(None) => {}
-        Err(err) => {
-            logger::log_warn(&format!(
-                "读取 Codex 官方 keychain 凭证失败，回退读取 auth.json: target_dir={}, error={}",
-                base_dir.display(),
-                err
-            ));
-        }
+    };
+    let read_keyring = || {
+        read_codex_keychain_auth_file_from_dir(base_dir).and_then(|auth| {
+            auth.map(|auth| serde_json::to_value(auth).map_err(|e| e.to_string()))
+                .transpose()
+        })
+    };
+    match codex_auth_credentials_store_mode(base_dir) {
+        CodexAuthCredentialsStoreMode::File => read_file(),
+        CodexAuthCredentialsStoreMode::Keyring => read_keyring(),
+        CodexAuthCredentialsStoreMode::Auto => match read_keyring() {
+            Ok(Some(auth)) => Ok(Some(auth)),
+            Ok(None) | Err(_) => read_file(),
+        },
+        CodexAuthCredentialsStoreMode::Ephemeral => Ok(None),
     }
-
-    auth_json_snapshot
 }
 
 fn load_local_oauth_snapshot_from_official_store(
@@ -586,7 +604,7 @@ fn sync_account_from_authority_dir_if_current(
     }
 
     if apply_local_oauth_snapshot(account, &snapshot) {
-        save_account(account)?;
+        *account = save_account_preserving_egress_proxy(account)?;
         persist_managed_projection_credential_owner_best_effort(
             base_dir,
             account,
@@ -661,7 +679,7 @@ pub(crate) fn sync_account_from_runtime_authority_dirs(
         );
         return Ok(false);
     }
-    save_account(&account)?;
+    account = save_account_preserving_egress_proxy(&account)?;
     persist_managed_projection_credential_owner_best_effort(
         source_dir,
         &account,
@@ -799,7 +817,7 @@ fn sync_account_from_auth_dir_if_current(
     }
 
     if apply_local_oauth_snapshot(account, &snapshot) {
-        save_account(account)?;
+        *account = save_account_preserving_egress_proxy(account)?;
         logger::log_info(&format!(
             "Codex 账号已从官方凭证源同步最新 Token: account_id={}, source_dir={}",
             account.id,
@@ -813,6 +831,41 @@ fn sync_account_from_auth_dir_if_current(
     );
 
     Ok(true)
+}
+
+/// 显式导入/同步入口：只在用户主动选择从官方目录回读时使用，业务主路径禁止自动调用。
+pub fn sync_current_official_account_from_dir(
+    base_dir: &Path,
+) -> Result<Option<CodexAccount>, String> {
+    let Some(snapshot) = load_local_oauth_snapshot_from_official_store(base_dir) else {
+        return Ok(None);
+    };
+
+    for mut account in list_accounts() {
+        if account.is_api_key_auth() {
+            continue;
+        }
+        if !local_oauth_snapshot_matches_account(&snapshot, &account) {
+            continue;
+        }
+
+        if apply_local_oauth_snapshot(&mut account, &snapshot) {
+            account = save_account_preserving_egress_proxy(&account)?;
+            logger::log_info(&format!(
+                "Codex 当前官方凭证已同步回账号库: account_id={}, source_dir={}",
+                account.id,
+                base_dir.display()
+            ));
+        }
+        persist_managed_projection_credential_owner_best_effort(
+            base_dir,
+            &account,
+            "official-account-import",
+        );
+        return Ok(Some(account));
+    }
+
+    Ok(None)
 }
 
 /// 显式导入/同步入口：只在用户主动选择从指定目录回读时使用，业务主路径禁止自动调用。
@@ -879,7 +932,7 @@ pub fn sync_managed_projection_from_auth_dir(
 
     let token_changed = apply_local_oauth_snapshot(&mut account, &snapshot);
     if token_changed {
-        save_account(&account)?;
+        account = save_account_preserving_egress_proxy(&account)?;
     }
 
     let projection_owner_changed = projection.version < CODEX_AUTH_PROJECTION_VERSION
@@ -952,32 +1005,33 @@ fn is_loopback_http_base_url(raw: Option<&str>) -> bool {
     }
 }
 
-fn sync_api_key_account_from_local_state(account: &mut CodexAccount, base_dir: &Path) {
+fn sync_api_key_account_from_local_state(
+    account: &mut CodexAccount,
+    base_dir: &Path,
+) -> Result<(), String> {
     let auth_path = base_dir.join("auth.json");
-    if !auth_path.exists() || !account.is_api_key_auth() {
-        return;
+    if !account.is_api_key_auth() || !auth_path.exists() {
+        return Ok(());
     }
 
-    let Ok(content) = fs::read_to_string(&auth_path) else {
-        return;
-    };
-    let Ok(auth_file) = serde_json::from_str::<CodexAuthFile>(&content) else {
-        return;
-    };
+    let content = fs::read_to_string(&auth_path)
+        .map_err(|error| format!("读取本地 API Key 登录状态失败: {error}"))?;
+    let auth_file = serde_json::from_str::<CodexAuthFile>(&content)
+        .map_err(|_| "解析本地 API Key 登录状态失败".to_string())?;
     let is_apikey_mode = is_auth_mode_apikey(auth_file.auth_mode.as_deref());
     let local_api_key = extract_api_key_from_auth_file(&auth_file);
     if !(is_apikey_mode || (auth_file.tokens.is_none() && local_api_key.is_some())) {
-        return;
+        return Ok(());
     }
 
     let Some(local_api_key) = normalize_optional_ref(local_api_key.as_deref()) else {
-        return;
+        return Ok(());
     };
     let Some(account_api_key) = normalize_optional_ref(account.openai_api_key.as_deref()) else {
-        return;
+        return Ok(());
     };
     if local_api_key != account_api_key {
-        return;
+        return Ok(());
     }
 
     let config_provider = read_api_provider_from_config_toml(base_dir);
@@ -988,13 +1042,13 @@ fn sync_api_key_account_from_local_state(account: &mut CodexAccount, base_dir: &
         == Some(CODEX_RUNTIME_MODEL_PROVIDER_ID)
         || is_loopback_http_base_url(config_provider.base_url.as_deref());
     if using_runtime_local_provider {
-        return;
+        return Ok(());
     }
 
     let resolved_base_url = extract_api_base_url_from_auth_file(&auth_file)
         .or_else(|| config_provider.base_url.clone());
     if is_loopback_http_base_url(resolved_base_url.as_deref()) {
-        return;
+        return Ok(());
     }
     let account_provider = infer_api_provider_config(
         account.api_base_url.as_deref(),
@@ -1030,18 +1084,19 @@ fn sync_api_key_account_from_local_state(account: &mut CodexAccount, base_dir: &
     );
 
     if account_provider == current_provider {
-        return;
+        return Ok(());
     }
 
     // Profile after local API attach uses localhost as the *client* Base URL.
     // Never write that back as the account's real upstream (breaks sidecar).
     if is_loopback_or_local_gateway_base_url(current_provider.base_url.as_deref()) {
-        return;
+        return Ok(());
     }
 
     account.api_base_url = current_provider.base_url.clone();
     account.api_provider_mode = current_provider.mode.clone();
     account.api_provider_id = current_provider.provider_id.clone();
     account.api_provider_name = current_provider.provider_name.clone();
-    let _ = save_account(account);
+    *account = save_account_preserving_egress_proxy(account)?;
+    Ok(())
 }

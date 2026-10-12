@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	codexlive "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/live"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 
 	sdkhandlers "github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
 	sdkopenai "github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/openai"
@@ -190,6 +191,7 @@ func main() {
 		os.Exit(2)
 	}
 	emitter.emitStartupStage("init_runtime")
+	helps.SetRequestProxyRouteObserver(newRequestProxyRouteObserver(m.ProxyRouteObservers))
 	m.quotaCooldowns = newQuotaCooldownStateStore(*quotaPoolStatePath, m)
 	if err := m.quotaCooldowns.load(); err != nil {
 		emitter.emit(map[string]any{"type": "quota_cooldown_state_error", "message": err.Error()})
@@ -211,6 +213,7 @@ func main() {
 		tracker:      usageTracker,
 		tokenLimiter: tokenLimiter,
 	}
+	defer policy.stopRequestDiagnostics()
 	hook := &authHook{manifest: m, emitter: emitter}
 	priorityState := newAPIKeyPriorityStateStore(*manifestPath)
 	selector := &cockpitSelector{

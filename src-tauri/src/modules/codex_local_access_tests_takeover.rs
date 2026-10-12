@@ -119,7 +119,7 @@
     }
 
     #[tokio::test]
-    async fn takeover_cleanup_restores_managed_local_compaction_fallback() {
+    async fn takeover_cleanup_does_not_replay_removed_compaction_flag() {
         let profile_dir = make_temp_dir("local-compaction-takeover-restore");
         // 接管前用户没有任何压缩相关设置。
         let original = "model = \"gpt-6-astra\"\n\n[features]\njs_repl = false\n";
@@ -146,10 +146,10 @@
         super::write_local_access_profile_takeover(&profile_dir, &collection, None, true)
             .await
             .expect("write takeover");
-        let config = fs::read_to_string(profile_dir.join(CODEX_PROFILE_CONFIG_FILE))
-            .expect("read config");
-        assert!(config.contains("remote_compaction_v2 = false"));
-        // 只有远端压缩被关闭；`token_budget` 会把压缩换成不产摘要的窗口重置，不能写入。
+        let config =
+            fs::read_to_string(profile_dir.join(CODEX_PROFILE_CONFIG_FILE)).expect("read config");
+        assert!(!config.contains("remote_compaction_v2"));
+        // 新接管不再新增压缩设置。
         assert!(!config.contains("token_budget"));
 
         let restored = restore_config_toml_from_takeover_backup(Some(&config), Some(original))
@@ -159,14 +159,34 @@
         assert!(!restored.contains("token_budget"));
         assert!(restored.contains("js_repl = false"));
 
-        // 用户原本就设过这两个键时按原值还原。
+        // 当前已经没有旧受管标记时，备份不得复活任何压缩设置。
         let user_config =
             "model = \"gpt-6-astra\"\n\n[features]\nremote_compaction_v2 = true\ntoken_budget = false\n";
         let restored = restore_config_toml_from_takeover_backup(Some(&config), Some(user_config))
             .expect("restore")
             .expect("config exists");
-        assert!(restored.contains("remote_compaction_v2 = true"));
-        assert!(restored.contains("token_budget = false"));
+        assert!(!restored.contains("remote_compaction_v2"));
+        assert!(!restored.contains("token_budget"));
+
+        let legacy_config = config.replace(
+            "js_repl = false",
+            "js_repl = false\nremote_compaction_v2 = false",
+        );
+        let legacy_restored =
+            restore_config_toml_from_takeover_backup(Some(&legacy_config), Some(user_config))
+                .expect("restore legacy takeover")
+                .expect("config exists");
+        assert!(!legacy_restored.contains("remote_compaction_v2"));
+        assert!(legacy_restored.contains("token_budget = false"));
+        assert!(legacy_restored.contains("js_repl = false"));
+
+        let edited_config =
+            legacy_config.replace("js_repl = false", "js_repl = false\ntoken_budget = true");
+        let edited_restored =
+            restore_config_toml_from_takeover_backup(Some(&edited_config), Some(user_config))
+                .expect("restore edited takeover")
+                .expect("config exists");
+        assert!(edited_restored.contains("token_budget = true"));
 
         // 接管前的配置里没有 profile 时不应凭空生成 features 段。
         let no_backup = restore_config_toml_from_takeover_backup(Some(&config), None)
@@ -179,17 +199,40 @@
     }
 
     #[test]
-    fn mixed_realtime_override_ignores_non_mixed_or_wrong_keys() {
+    fn takeover_cleanup_preserves_unmanaged_compaction_features() {
+        for value in ["false", "true"] {
+            let current = format!(
+                "[features]\nremote_compaction_v2 = {value}\ntoken_budget = true\njs_repl = false\n"
+            );
+            let restored = restore_config_toml_from_takeover_backup(Some(&current), Some(&current))
+                .expect("restore user settings")
+                .expect("config exists");
+            let doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&restored)
+                .expect("parse restored");
+            assert_eq!(
+                doc["features"]["remote_compaction_v2"].as_bool(),
+                Some(value == "true")
+            );
+            assert_eq!(doc["features"]["token_budget"].as_bool(), Some(true));
+            assert_eq!(doc["features"]["js_repl"].as_bool(), Some(false));
+        }
+    }
+
+    #[test]
+    fn realtime_override_supports_pool_and_ignores_wrong_keys() {
         let profile_dir = make_temp_dir("mixed-realtime-key-scope");
         let mut collection = realtime_mixed_test_collection();
         let original = "model = \"gpt-6-astra\"\n";
         fs::write(profile_dir.join(CODEX_PROFILE_CONFIG_FILE), original).expect("write original");
-        super::write_mixed_model_realtime_sideband_override(&profile_dir, &collection, "different-key")
+        super::write_local_access_realtime_sideband_override(&profile_dir, &collection, "different-key")
             .expect("wrong key no-op");
-        collection.api_keys[0].model_routing = None;
-        super::write_mixed_model_realtime_sideband_override(&profile_dir, &collection, &collection.api_key)
-            .expect("non-mixed no-op");
         assert_eq!(fs::read_to_string(profile_dir.join(CODEX_PROFILE_CONFIG_FILE)).expect("read"), original);
+        collection.api_keys[0].model_routing = None;
+        super::write_local_access_realtime_sideband_override(&profile_dir, &collection, &collection.api_key)
+            .expect("pool override");
+        let config = fs::read_to_string(profile_dir.join(CODEX_PROFILE_CONFIG_FILE)).expect("read");
+        let doc = config.parse::<Document>().expect("parse");
+        assert_eq!(doc["experimental_realtime_ws_base_url"].as_str(), Some(build_collection_base_url(&collection).as_str()));
         fs::remove_dir_all(profile_dir).expect("cleanup fixture");
     }
 
@@ -380,6 +423,7 @@
                 model_id: "gpt-5.5".into(),
                 display_name: "GPT-5.5".into(),
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: Some(516_000),
                 auto_compact_token_limit: Some(460_000),
             },
@@ -387,6 +431,7 @@
                 model_id: "custom-third-party".into(),
                 display_name: "Custom".into(),
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: Some(123_456),
                 auto_compact_token_limit: Some(111_111),
             },
@@ -701,6 +746,18 @@
         )
         .expect("direct collection should build");
 
+        let default_model = crate::modules::codex_wakeup::DEFAULT_WAKEUP_MODEL;
+        assert_eq!(direct_collection.model_aliases.len(), 1);
+        assert_eq!(direct_collection.model_aliases[0].alias, default_model);
+        assert_eq!(
+            direct_collection.model_aliases[0].source_model,
+            request.model_id.trim()
+        );
+        assert_eq!(
+            direct_collection.api_keys[0].allowed_models,
+            vec![default_model]
+        );
+
         assert_eq!(
             direct_collection.image_generation_mode,
             CodexLocalAccessImageGenerationMode::Enabled
@@ -931,6 +988,7 @@
 
     #[tokio::test]
     async fn sidecar_config_disables_chat_image_generation_for_oauth_pool() {
+        let _shared_state = crate::modules::codex_unified_proxy::TestCacheGuard::new();
         let dir = make_temp_dir("codex-sidecar-oauth-image-generation");
         let account = CodexAccount::new(
             "oauth-image-generation-1".to_string(),
@@ -962,6 +1020,7 @@
 
     #[tokio::test]
     async fn sidecar_config_uses_streaming_bootstrap_retry_setting() {
+        let _shared_state = crate::modules::codex_unified_proxy::TestCacheGuard::new();
         let dir = make_temp_dir("codex-sidecar-streaming-bootstrap-retries");
         let account = CodexAccount::new(
             "oauth-streaming-retries-1".to_string(),
@@ -1204,7 +1263,7 @@
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        assert!(excluded.iter().any(|item| item.as_str() == Some("gpt-5.4")));
+        assert!(excluded.iter().any(|item| item.as_str() == Some("gpt-6.1-sol")));
         assert!(!excluded
             .iter()
             .any(|item| item.as_str() == Some("gpt-5.6-sol")));

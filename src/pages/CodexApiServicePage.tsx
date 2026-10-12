@@ -28,6 +28,7 @@ import {
   reconcileCodexApiKeyScopeAccountIds,
 } from "../utils/codexApiKeyAccountScope";
 import { resolveCodexApiServiceCompatibilityBaseUrls } from "../utils/codexApiServiceCompatibility";
+import { clearRecoveredCodexGatewayError } from "../utils/codexGatewayKeyRecovery";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import * as codexInstanceService from "../services/codexInstanceService";
 import {
@@ -41,6 +42,7 @@ import {
   updateCodexAccountApiModelMappings,
 } from "../services/codexService";
 import { parseContextWindowDrafts } from "../utils/codexModelContextWindows";
+import { updateModelPricingDraft, type ModelPricingDraft, type ModelPricingDraftField } from "../utils/codexModelPricingDraft";
 import {
   CODEX_API_SERVICE_BIND_ID,
   type InstanceProfile,
@@ -77,6 +79,7 @@ import {
 import { requestCodexOpenAddAccount } from "../utils/codexAddAccountRequest";
 import { scrollElementTo } from "../utils/reducedMotion";
 import { useCodexAccountOverviewMemberView } from "../hooks/useCodexAccountOverviewMemberView";
+import { useCodexApiKeyInspection } from "../hooks/useCodexApiKeyInspection";
 import {
   type CodexStatsRangeKey,
   type CodexStatsTimeRange,
@@ -128,22 +131,6 @@ interface ModelPricingRow
   > {
   inputUsdPerMillion: number | null;
   outputUsdPerMillion: number | null;
-  hasPreset: boolean;
-  custom: boolean;
-}
-
-interface ModelPricingDraft {
-  modelId: string;
-  longContextThresholdTokens: string;
-  inputUsdPerMillion: string;
-  cachedInputUsdPerMillion: string;
-  outputUsdPerMillion: string;
-  standardLongInputUsdPerMillion: string;
-  standardLongCachedInputUsdPerMillion: string;
-  standardLongOutputUsdPerMillion: string;
-  priorityInputUsdPerMillion: string;
-  priorityCachedInputUsdPerMillion: string;
-  priorityOutputUsdPerMillion: string;
   hasPreset: boolean;
   custom: boolean;
 }
@@ -297,6 +284,7 @@ function sameOptionalPrice(
 function modelPricingDraftFromRow(item: ModelPricingRow): ModelPricingDraft {
   return {
     modelId: item.modelId,
+    standardLongPriceOverride: item.standardLongPriceOverride ?? false,
     longContextThresholdTokens: formatIntegerDraftValue(
       item.longContextThresholdTokens,
     ),
@@ -732,6 +720,9 @@ export function useCodexApiServicePageController() {
   const [sidecarRestarting, setSidecarRestarting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (state) setError((current) => clearRecoveredCodexGatewayError(current, state));
+  }, [state]);
   const [copiedField, setCopiedField] = useState<CopyField | null>(null);
   const [keyVisible, setKeyVisible] = useState(false);
   const [portInput, setPortInput] = useState("");
@@ -789,7 +780,7 @@ export function useCodexApiServicePageController() {
   const [maxConcurrentImageRequestsDraft, setMaxConcurrentImageRequestsDraft] =
     useState("1");
   const [maxAccountConcurrencyDraft, setMaxAccountConcurrencyDraft] =
-    useState("0");
+    useState("2");
   const [accountConcurrencyWaitDraft, setAccountConcurrencyWaitDraft] =
     useState("120");
   const [requestLogPage, setRequestLogPage] = useState(1);
@@ -818,6 +809,13 @@ export function useCodexApiServicePageController() {
   const testChatScrollRef = useRef<HTMLDivElement | null>(null);
 
   const collection = state?.collection ?? null;
+  const { inspectionNoticeKey, dismissInspectionNotice } = useCodexApiKeyInspection({
+    apiKeys: state ? (collection?.apiKeys ?? []) : null,
+    activeTab,
+    setActiveTab,
+    expandedApiKeyPolicyIds,
+    setExpandedApiKeyPolicyIds,
+  });
   const stats = state?.stats ?? null;
   const memberView = useCodexAccountOverviewMemberView({
     accounts,
@@ -1038,6 +1036,7 @@ export function useCodexApiServicePageController() {
       const source = custom ?? preset;
       return {
         modelId: source?.modelId ?? modelId,
+        standardLongPriceOverride: source?.standardLongPriceOverride ?? false,
         longContextThresholdTokens:
           source?.longContextThresholdTokens ??
           preset?.longContextThresholdTokens ??
@@ -1546,7 +1545,7 @@ export function useCodexApiServicePageController() {
       String(collection?.maxConcurrentImageRequests ?? 1),
     );
     setMaxAccountConcurrencyDraft(
-      String(collection?.maxAccountConcurrency ?? 0),
+      String(collection?.maxAccountConcurrency ?? 2),
     );
     setAccountConcurrencyWaitDraft(
       formatSeconds(collection?.accountConcurrencyWaitMs ?? 120 * 1000),
@@ -1598,6 +1597,7 @@ export function useCodexApiServicePageController() {
   const runAction = async (
     task: () => Promise<unknown>,
     successText: string,
+    propagateError = false,
   ) => {
     setBusy(true);
     setError("");
@@ -1605,7 +1605,9 @@ export function useCodexApiServicePageController() {
     try {
       await task();
       setNotice(successText);
+      return true;
     } catch (err) {
+      if (propagateError) throw err;
       if (
         presentWindowsOperationError({
           error: err,
@@ -1617,9 +1619,10 @@ export function useCodexApiServicePageController() {
           },
         })
       ) {
-        return;
+        return false;
       }
       setError(String(err).replace(/^Error:\s*/, ""));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -1651,8 +1654,8 @@ export function useCodexApiServicePageController() {
     });
   }, []);
 
-  const handleToggleEnabled = async () => {
-    if (!collection) return;
+  const handleToggleEnabled = async (fromDialog = false) => {
+    if (!collection) return false;
     if (!collection.enabled) {
       const confirmed = await confirmDialog(
         t(
@@ -1666,9 +1669,9 @@ export function useCodexApiServicePageController() {
           cancelLabel: t("common.cancel", "取消"),
         },
       );
-      if (!confirmed) return;
+      if (!confirmed) return false;
     }
-    await runAction(
+    return runAction(
       async () => {
         const next = await codexLocalAccessService.setCodexLocalAccessEnabled(
           !collection.enabled,
@@ -1678,6 +1681,7 @@ export function useCodexApiServicePageController() {
       collection.enabled
         ? t("codex.localAccess.disabledSuccess", "API 服务已停用")
         : t("codex.localAccess.enabledSuccess", "API 服务已启用"),
+      fromDialog,
     );
   };
 
@@ -1972,7 +1976,7 @@ export function useCodexApiServicePageController() {
         await codexLocalAccessService.restartCodexLocalAccessSidecar();
       setState(next);
       setNotice(
-        t("codex.localAccess.restartSuccess", "API 服务 Sidecar 已重启"),
+        next.recovering ? "" : t("codex.localAccess.restartSuccess", "API 服务 Sidecar 已重启"),
       );
     } catch (err) {
       if (
@@ -2655,12 +2659,12 @@ export function useCodexApiServicePageController() {
 
   const updatePricingDraft = (
     modelId: string,
-    field: keyof Omit<ModelPricingDraft, "modelId" | "hasPreset" | "custom">,
+    field: ModelPricingDraftField,
     value: string,
   ) => {
     setPricingDrafts((current) =>
       current.map((item) =>
-        item.modelId === modelId ? { ...item, [field]: value } : item,
+        item.modelId === modelId ? updateModelPricingDraft(item, field, value) : item,
       ),
     );
   };
@@ -2674,6 +2678,7 @@ export function useCodexApiServicePageController() {
         item.modelId === modelId
           ? {
               ...item,
+              standardLongPriceOverride: false,
               longContextThresholdTokens: formatIntegerDraftValue(
                 preset?.longContextThresholdTokens ?? null,
               ),
@@ -2731,6 +2736,7 @@ export function useCodexApiServicePageController() {
       draft: ModelPricingDraft,
       preset: CodexLocalAccessModelPricing,
     ) =>
+      !draft.standardLongPriceOverride &&
       sameOptionalPrice(
         parseOptionalPositiveIntegerDraft(draft.longContextThresholdTokens),
         preset.longContextThresholdTokens ?? null,
@@ -2819,7 +2825,7 @@ export function useCodexApiServicePageController() {
       if (unsetUnknown) {
         continue;
       }
-      // 阈值可空：非长上下文模型（如 gpt-5.4-mini）不填是合法的。
+      // 阈值可空：自定义非长上下文模型不填是合法的。
       // 仅当用户填写了内容但不是正整数（解析为 NaN）时才拦截。
       // 若填写了任一长上下文价格档，则必须同时提供合法阈值。
       const hasLongContextTier =
@@ -2858,6 +2864,7 @@ export function useCodexApiServicePageController() {
         return;
       }
       const allZero =
+        !draft.standardLongPriceOverride &&
         !preset &&
         input === 0 &&
         output === 0 &&
@@ -2873,6 +2880,7 @@ export function useCodexApiServicePageController() {
       }
       nextPricings.push({
         modelId: draft.modelId,
+        standardLongPriceOverride: draft.standardLongPriceOverride,
         longContextThresholdTokens,
         inputUsdPerMillion: input,
         outputUsdPerMillion: output,
@@ -3617,6 +3625,8 @@ export function useCodexApiServicePageController() {
 
   return {
     accessScope,
+    inspectionNoticeKey,
+    dismissInspectionNotice,
     accessScopeOptions,
     accountConcurrencyWaitDraft,
     accountDisplayNames,
@@ -3770,6 +3780,7 @@ export function useCodexApiServicePageController() {
     requestLogInstanceQuery,
     requestLogKindFilter,
     requestLogKindOptions,
+    requestLogLoaded: requestLogResult !== null,
     requestLogLoading,
     statsDetailsRefreshing,
     requestLogModelQuery,

@@ -1,10 +1,12 @@
+import { getCodexAccountQuotaError } from "../utils/codexProxyRuntimeError";
+import { summarizeCodexInstanceGateways } from "../utils/codexInstanceGatewaySummary";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { RefreshCw, X, CircleAlert, Info, Link2 } from "lucide-react";
 import * as codexService from "../services/codexService";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { presentWindowsOperationError } from "../utils/windowsOperationDialog";
-import { assignAccountsToCodexGroup, deleteCodexGroup, removeAccountsFromCodexGroup } from "../services/codexAccountGroupService";
+import { setCodexGroupAccounts, deleteCodexGroup, removeAccountsFromCodexGroup } from "../services/codexAccountGroupService";
 import { formatCodexLoginProvider, getCodexAuthMetadata, getCodexPlanFilterKey, getCodexSubscriptionPresentationForAccount, isCodexApiKeyAccount, isCodexNewApiAccount, isCodexTeamLikePlan, type CodexQuotaErrorInfo } from "../types/codex";
 import { canAddCodexAccountToLocalAccess, filterCodexLocalAccessAccountIds } from "../utils/codexLocalAccessAccounts";
 import { extractCodexQuotaErrorCode, extractCodexQuotaErrorStatusCode, isBlockingCodexAccountQuotaError, isVerboseCodexQuotaErrorMessage, summarizeCodexQuotaErrorMessage } from "../utils/codexQuotaError";
@@ -199,6 +201,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
   const [instanceGatewaysError, setInstanceGatewaysError] = useState("");
   const resolveQuotaErrorMeta = useCallback(
       (quotaError?: CodexQuotaErrorInfo) => {
+        quotaError = getCodexAccountQuotaError(quotaError);
         if (!quotaError?.message) {
           return {
             statusCode: "",
@@ -718,6 +721,12 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
             health,
           ]),
         );
+        // 手动恢复后仍在抑制窗口内的账号：与账号状态弹框一致，暂时不计入异常。
+        const suppressedAccountIds = new Set(
+          (localAccessState?.recoverySuppressedAccountIds ?? [])
+            .map((accountId) => accountId.trim())
+            .filter(Boolean),
+        );
         const poolUnavailableAccountIds = new Set<string>();
         (localAccessState?.accountPoolHealth ?? []).forEach((pool) => {
           const statuses = (pool.accountStatuses ?? []).filter((member) =>
@@ -746,6 +755,10 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
         };
   
         (localAccessCollection?.accountIds ?? []).forEach((accountId) => {
+          if (suppressedAccountIds.has(accountId)) {
+            summary.available += 1;
+            return;
+          }
           const account = accountById.get(accountId);
           const health = healthById.get(accountId);
           if (!account) {
@@ -780,6 +793,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
         localAccessCollection?.accountIds,
         localAccessState?.accountHealth,
         localAccessState?.accountPoolHealth,
+        localAccessState?.recoverySuppressedAccountIds,
       ]);
     const localAccessAccountPoolHealthHasIssue =
       localAccessAccountPoolHealthSummary.available <
@@ -989,13 +1003,10 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
       void refreshInstanceGateways();
     }, [refreshInstanceGateways]);
 
-    const instanceGatewaySummary = useMemo(() => {
-      const total = instanceGateways.length;
-      const running = instanceGateways.filter(
-        (gateway) => gateway.status === "running",
-      ).length;
-      return { total, running, issues: Math.max(0, total - running) };
-    }, [instanceGateways]);
+    const instanceGatewaySummary = useMemo(
+      () => summarizeCodexInstanceGateways(instanceGateways),
+      [instanceGateways],
+    );
   
     const openCodexApiServicePage = useCallback(() => {
       setShowLocalAccessModal(false);
@@ -1563,8 +1574,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
   
     const handleQuickAddAccountsToGroup = useCallback(
       async (groupId: string, accountIds: string[]) => {
-        if (accountIds.length === 0) return;
-        await assignAccountsToCodexGroup(groupId, accountIds);
+        await setCodexGroupAccounts(groupId, accountIds);
         await reloadCodexGroups();
       },
       [reloadCodexGroups],
@@ -1823,10 +1833,10 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
     );
   
     const handleToggleLocalAccessEnabled = useCallback(async () => {
-      if (!localAccessCollection) return;
+      if (!localAccessCollection) return false;
       if (!localAccessCollection.enabled) {
         const confirmed = await requestLocalAccessRiskNotice("service");
-        if (!confirmed) return;
+        if (!confirmed) return false;
       }
       setLocalAccessSaving(true);
       try {

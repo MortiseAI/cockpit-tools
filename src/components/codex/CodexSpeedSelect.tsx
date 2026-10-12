@@ -120,7 +120,7 @@ export function CodexSpeedSelect({
       {
         value: "fast" as CodexAppSpeed,
         label: t("codex.speed.fast", "快速"),
-        desc: t("codex.speed.fastDesc", "1.5 倍速，用量增加"),
+        desc: t("codex.speed.fastDesc", "加速，用量／费用更高"),
       },
       {
         value: "auto" as CodexAppSpeed,

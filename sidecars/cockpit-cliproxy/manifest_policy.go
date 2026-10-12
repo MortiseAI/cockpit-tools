@@ -55,8 +55,6 @@ const defaultStreamKeepAliveSeconds = 15
 const quotaReserveMaxSnapshotAge = 3 * time.Minute
 const codexAutoReviewModel = "codex-auto-review"
 const codexReserveModel = "gpt-reserve"
-const codexSparkModel = "gpt-5.3-codex-spark"
-const codexSparkCatalogTemplateModel = "gpt-5.3-codex"
 const defaultImagesMainModel = "gpt-5.5"
 const defaultImagesToolModel = "gpt-image-2.5"
 
@@ -98,35 +96,41 @@ type accountModelRule struct {
 }
 
 type manifest struct {
-	Locale                     string              `json:"locale"`
-	APIKeys                    []apiKeySpec        `json:"apiKeys"`
-	Accounts                   []accountSpec       `json:"accounts"`
-	ModelIDs                   []string            `json:"modelIds"`
-	ImageGenerationModel       string              `json:"imageGenerationModel"`
-	ModelAliases               []modelAliasSpec    `json:"modelAliases"`
-	ExcludedModels             []string            `json:"excludedModels"`
-	AccountModelRules          []accountModelRule  `json:"accountModelRules"`
-	RoutingStrategy            string              `json:"routingStrategy"`
-	CustomRoutingRules         []customRoutingRule `json:"customRoutingRules"`
-	ImmediateSSEResponse       bool                `json:"immediateSseResponse"`
-	MaxConcurrentImageRequests int                 `json:"maxConcurrentImageRequests"`
+	GatewayErrorMessages       map[string]map[string]string `json:"gatewayErrorMessages,omitempty"`
+	ProxyRouteObservers        []proxyRouteObserverSpec     `json:"proxyRouteObservers,omitempty"`
+	Locale                     string                       `json:"locale"`
+	APIKeys                    []apiKeySpec                 `json:"apiKeys"`
+	Accounts                   []accountSpec                `json:"accounts"`
+	ModelIDs                   []string                     `json:"modelIds"`
+	ImageGenerationModel       string                       `json:"imageGenerationModel"`
+	ImageGenerationMainModel   string                       `json:"imageGenerationMainModel,omitempty"`
+	ModelAliases               []modelAliasSpec             `json:"modelAliases"`
+	ExcludedModels             []string                     `json:"excludedModels"`
+	AccountModelRules          []accountModelRule           `json:"accountModelRules"`
+	RoutingStrategy            string                       `json:"routingStrategy"`
+	CustomRoutingRules         []customRoutingRule          `json:"customRoutingRules"`
+	ImmediateSSEResponse       bool                         `json:"immediateSseResponse"`
+	MaxConcurrentImageRequests int                          `json:"maxConcurrentImageRequests"`
 	// MaxAccountConcurrency 限制单个账号同时处理的会话数；0 表示不限制。
 	MaxAccountConcurrency int `json:"maxAccountConcurrency"`
 	// AccountConcurrencyWaitMs 账号并发达到上限后的等待时长（毫秒）；0 表示不等待，直接拒绝。
-	AccountConcurrencyWaitMs int   `json:"accountConcurrencyWaitMs"`
-	DebugLogs                *bool `json:"debugLogs,omitempty"`
+	AccountConcurrencyWaitMs int    `json:"accountConcurrencyWaitMs"`
+	DebugLogs                *bool  `json:"debugLogs,omitempty"`
+	RequestPayloadLogging    bool   `json:"requestPayloadLogging"`
+	DiagnosticsControlKey    string `json:"diagnosticsControlKey,omitempty"`
 
-	apiKeyByValue     map[string]*apiKeySpec
-	accountByID       map[string]*accountSpec
-	accountByAuthID   map[string]*accountSpec
-	accountByAPIKey   map[string]*accountSpec
-	accountByChatGPT  map[string]*accountSpec
-	accountByEmail    map[string]*accountSpec
-	aliasToSource     map[string]string
-	originalIndexByID map[string]int
-	quotaCooldowns    *quotaCooldownStateStore
-	authManager       *coreauth.Manager
-	authRecovery      *authRecoveryCoordinator
+	apiKeyByValue                 map[string]*apiKeySpec
+	accountByID                   map[string]*accountSpec
+	accountByAuthID               map[string]*accountSpec
+	accountByAPIKey               map[string]*accountSpec
+	accountByChatGPT              map[string]*accountSpec
+	accountByEmail                map[string]*accountSpec
+	aliasToSource                 map[string]string
+	originalIndexByID             map[string]int
+	quotaCooldowns                *quotaCooldownStateStore
+	authManager                   *coreauth.Manager
+	authRecovery                  *authRecoveryCoordinator
+	requestPayloadLoggingOverride atomic.Pointer[bool]
 }
 
 type apiKeySpec struct {
@@ -433,11 +437,13 @@ type customRoutingRule struct {
 }
 
 type usagePayload struct {
-	Type      string `json:"type"`
-	RequestID string `json:"requestId,omitempty"`
-	Provider  string `json:"provider,omitempty"`
-	Model     string `json:"model,omitempty"`
-	Alias     string `json:"alias,omitempty"`
+	outputComplete bool
+	ProxyRoute     *coreusage.ProxyRoute `json:"proxyRoute,omitempty"`
+	Type           string                `json:"type"`
+	RequestID      string                `json:"requestId,omitempty"`
+	Provider       string                `json:"provider,omitempty"`
+	Model          string                `json:"model,omitempty"`
+	Alias          string                `json:"alias,omitempty"`
 	// RequestedModel keeps the client-requested model (route namespace intact)
 	// while Model/UpstreamModel carry the model that actually reached upstream.
 	RequestedModel      string `json:"requestedModel,omitempty"`
@@ -457,6 +463,7 @@ type usagePayload struct {
 	ErrorCategory       string `json:"errorCategory,omitempty"`
 	ErrorMessage        string `json:"errorMessage,omitempty"`
 	LatencyMS           int64  `json:"latencyMs,omitempty"`
+	OutputGenerationMS  *int64 `json:"outputGenerationMs,omitempty"`
 	// TurnStateLength/TurnStateClass 来自上游响应头的旁路观测；state 原文不保存。
 	TurnStateLength *int         `json:"turnStateLength,omitempty"`
 	TurnStateClass  string       `json:"turnStateClass,omitempty"`
@@ -501,6 +508,7 @@ type requestDiagnosticPayload struct {
 	NextRetryAtMS           int64                      `json:"nextRetryAtMs,omitempty"`
 	AuthStateReason         string                     `json:"authStateReason,omitempty"`
 	AccountStatuses         []authPoolMemberDiagnostic `json:"accountStatuses,omitempty"`
+	ScopeDiagnostics        []authPoolScopeDiagnostic  `json:"scopeDiagnostics,omitempty"`
 }
 
 const executorWaitLogInterval = 30 * time.Second
@@ -559,13 +567,14 @@ func effectiveUsageTotalTokens(usage usageDetails) int64 {
 }
 
 type usageFinalizeInput struct {
-	spec          *apiKeySpec
-	requestKind   string
-	model         string
-	status        int
-	latencyMS     int64
-	completedAtMS int64
-	errorMessage  string
+	spec                *apiKeySpec
+	requestKind         string
+	model               string
+	status              int
+	latencyMS           int64
+	completedAtMS       int64
+	errorMessage        string
+	suppressOutputSpeed bool
 }
 
 type selectedAccountRecord struct {
@@ -907,14 +916,26 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 	if strings.TrimSpace(payload.RequestKind) == "" {
 		payload.RequestKind = strings.TrimSpace(input.requestKind)
 	}
-	if selectedOK {
+	// Successful usage keeps the route observed by the attempt that reported it.
+	// For a final HTTP failure, only the last recorded attempt can describe the
+	// final route. A different selection without usage leaves that route unknown.
+	if input.status >= http.StatusBadRequest && len(records) > 0 {
+		routeRecord := records[len(records)-1]
+		payload.ProxyRoute = routeRecord.ProxyRoute
+		if selectedOK && (strings.TrimSpace(routeRecord.AuthID) == "" ||
+			!strings.EqualFold(strings.TrimSpace(routeRecord.AuthID), strings.TrimSpace(selected.AuthID))) {
+			payload.ProxyRoute = nil
+		}
+	}
+	// Token usage belongs to the attempt that reported it, not the last account
+	// selected for this downstream request. Async callbacks and retries may differ.
+	canUseSelected := len(records) == 0 ||
+		(strings.TrimSpace(payload.AccountID) == "" && strings.TrimSpace(payload.AuthID) != "" &&
+			strings.EqualFold(strings.TrimSpace(payload.AuthID), strings.TrimSpace(selected.AuthID)))
+	if selectedOK && canUseSelected {
 		payload.AccountID = selected.AccountID
 		payload.AccountEmail = selected.AccountEmail
 		payload.AuthID = selected.AuthID
-	} else {
-		payload.AccountID = ""
-		payload.AccountEmail = ""
-		payload.AuthID = ""
 	}
 	if input.status > 0 {
 		payload.Status = input.status
@@ -927,6 +948,9 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 	}
 
 	finalHTTPFailed := input.status >= http.StatusBadRequest
+	if finalHTTPFailed || (input.suppressOutputSpeed && !payload.outputComplete) || !payload.Success {
+		payload.OutputGenerationMS = nil
+	}
 	if finalHTTPFailed {
 		payload.Success = false
 		if strings.TrimSpace(payload.ErrorCategory) == "" {
@@ -1115,6 +1139,15 @@ func configuredImagesToolModel(m *manifest) string {
 	return defaultImagesToolModel
 }
 
+func configuredImagesMainModel(m *manifest) string {
+	if m != nil {
+		if model := strings.TrimSpace(m.ImageGenerationMainModel); model != "" {
+			return model
+		}
+	}
+	return defaultImagesMainModel
+}
+
 // imageGenerationAccountIDsForSpec 返回该 API Key 配置的生图转发账号池。
 func imageGenerationAccountIDsForSpec(spec *apiKeySpec) []string {
 	if spec == nil || len(spec.ImageGenerationAccountIDs) == 0 {
@@ -1281,22 +1314,26 @@ func withClientInstanceID(ctx context.Context, instanceID string) context.Contex
 }
 
 type requestPolicy struct {
-	manifest     *manifest
-	cfg          *config.Config
-	emitter      *eventEmitter
-	tracker      *requestUsageTracker
-	tokenLimiter *apiKeyTokenLimiter
+	diagnosticsOnce  sync.Once
+	diagnosticsQueue *requestDiagnosticsQueue
+	manifest         *manifest
+	cfg              *config.Config
+	emitter          *eventEmitter
+	tracker          *requestUsageTracker
+	tokenLimiter     *apiKeyTokenLimiter
 }
 
 func (p *requestPolicy) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request == nil || c.Request.Method == http.MethodOptions {
+		if c.Request == nil || c.Request.Method == http.MethodOptions || isRequestDiagnosticsControlPath(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
 
 		startedAt := time.Now()
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestStartedAtContextKey, startedAt.UnixMilli()))
 		requestID := ensureRequestID(c)
+		diagnostics := p.beginRequestDiagnostics(c, requestID, startedAt)
 		spec := p.lookupAPIKey(c.Request)
 		if diagnosticTransport(c.Request) == "websocket" && p.emitter != nil {
 			sink := newWebsocketUsageSink(requestID, func(payload usagePayload) {
@@ -1329,6 +1366,7 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 			if startLogged {
 				p.emitRequestCompleted(c, requestID, spec, requestKind, model, startedAt)
 			}
+			diagnostics.finish(c.Request.Context(), c.Writer.Status())
 		}()
 
 		if spec != nil {
@@ -1383,7 +1421,7 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 			return
 		}
 
-		if spec == nil || isCodexLiveRequest(c.Request) || !shouldInspectJSONBody(c.Request) {
+		if spec == nil || isCodexLiveRequest(c.Request) || isAudioPath(c.Request.URL.Path) || !shouldInspectJSONBody(c.Request) {
 			emitStart()
 			c.Next()
 			return
@@ -1537,13 +1575,14 @@ func (p *requestPolicy) emitRequestCompleted(c *gin.Context, requestID string, s
 		return
 	}
 	if payload, ok := p.tracker.finalize(requestID, usageFinalizeInput{
-		spec:          spec,
-		requestKind:   requestKind,
-		model:         model,
-		status:        status,
-		latencyMS:     latencyMS,
-		completedAtMS: completedAtMS,
-		errorMessage:  strings.TrimSpace(c.Errors.String()),
+		spec:                spec,
+		requestKind:         requestKind,
+		model:               model,
+		status:              status,
+		latencyMS:           latencyMS,
+		completedAtMS:       completedAtMS,
+		errorMessage:        strings.TrimSpace(c.Errors.String()),
+		suppressOutputSpeed: c.Request.Context().Err() != nil,
 	}); ok {
 		p.tokenLimiter.addUsage(spec, effectiveUsageTotalTokens(payload.Usage))
 		p.emitter.emit(payload)
@@ -1721,7 +1760,7 @@ func buildOllamaShowResponse(model string, modifiedAt time.Time) gin.H {
 
 func ollamaModelFamily(model string) string {
 	normalized := strings.ToLower(strings.TrimSpace(model))
-	for _, prefix := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
+	for _, prefix := range []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
 		if strings.HasPrefix(normalized, prefix) {
 			return prefix
 		}
@@ -1739,14 +1778,16 @@ func ollamaModelFamily(model string) string {
 
 func ollamaContextLength(model string) int {
 	switch {
+	case strings.HasPrefix(model, "gpt-6.1-sol"):
+		return 272000
 	case strings.HasPrefix(model, "gpt-6-sol"), strings.HasPrefix(model, "gpt-6-luna"):
 		return 1050000
 	case strings.HasPrefix(model, "gpt-6-astra"):
 		return 1050000
 	case strings.HasPrefix(model, "gpt-5.6"):
-		return 372000
+		return 272000
 	case strings.HasPrefix(model, "gpt-5.5"), strings.HasPrefix(model, "gpt-5.4"):
-		return 400000
+		return 272000
 	case strings.HasPrefix(model, "gpt-5.3"), strings.HasPrefix(model, "gpt-5.2"), strings.HasPrefix(model, "gpt-5.1"):
 		return 272000
 	default:
@@ -1754,13 +1795,36 @@ func ollamaContextLength(model string) int {
 	}
 }
 
+// autoCompactTokenLimitFor 返回目录里声明某个上下文窗口时必须一并下发的压缩阈值。
+//
+// Codex 客户端只认「上下文窗口 + 压缩阈值」这一对声明：只写窗口会让客户端回退到
+// 自身的压缩策略，写满 100% 则永远不会触发压缩。统一按 90% 派生，留出压缩所需的
+// 生成预算。
+func autoCompactTokenLimitFor(contextWindow int64) int64 {
+	if contextWindow <= 0 {
+		return 0
+	}
+	return contextWindow * 90 / 100
+}
+
+// ensureCodexClientCompactionLimit 保证目录条目「上下文窗口 + 压缩阈值」成对下发。
+//
+// 缺失或为 null 时按 90% 派生；已声明但不小于窗口（等于 100%，永远不会触发压缩）时
+// 同样收敛到 90%。其余情况保留目录真值，避免覆盖上游自己的压缩策略。
+func ensureCodexClientCompactionLimit(model map[string]any) {
+	window := intModelValueAny(model["context_window"])
+	if window <= 0 {
+		return
+	}
+	if limit := intModelValueAny(model["auto_compact_token_limit"]); limit > 0 && limit < window {
+		return
+	}
+	model["auto_compact_token_limit"] = autoCompactTokenLimitFor(int64(window))
+}
+
 func ollamaReasoningEfforts(model string) []string {
 	switch {
-	case strings.HasPrefix(model, "gpt-6-sol"):
-		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
-	case strings.HasPrefix(model, "gpt-6-luna"):
-		return []string{"low", "medium", "high", "xhigh", "max"}
-	case strings.HasPrefix(model, "gpt-6-astra"):
+	case strings.HasPrefix(model, "gpt-6.1-sol"), strings.HasPrefix(model, "gpt-6-astra"), strings.HasPrefix(model, "gpt-6-sol"):
 		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 	// Luna 家族没有 ultra 档位，不要跟着上面一起放宽。
 	case strings.HasPrefix(model, "gpt-6-luna"):
@@ -1775,7 +1839,7 @@ func ollamaReasoningEfforts(model string) []string {
 }
 
 func ollamaDefaultReasoningEffort(model string) string {
-	if strings.HasPrefix(model, "gpt-5.6-sol") {
+	if strings.HasPrefix(model, "gpt-6.1-sol") || strings.HasPrefix(model, "gpt-5.6-sol") {
 		return "low"
 	}
 	return "medium"
@@ -1850,6 +1914,8 @@ func applyExplicitContextWindows(models []map[string]any, windows map[string]int
 		if window := lookupExplicitContextWindow(windows, slug); window > 0 {
 			model["context_window"] = window
 			model["max_context_window"] = window
+			// 显式窗口同样必须带压缩阈值，否则客户端会退回内置压缩策略。
+			model["auto_compact_token_limit"] = autoCompactTokenLimitFor(window)
 		}
 	}
 }
@@ -1900,6 +1966,9 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec, windows m
 		// official context/service-tier values from codex_client_models.json.
 		if cw := ollamaContextLength(model); cw > 0 {
 			entry["context_length"] = cw
+			// 目录里声明窗口就必须同时声明压缩阈值，只写窗口会被客户端
+			// 当成「未声明压缩」并回退到自身默认策略。
+			entry["auto_compact_token_limit"] = autoCompactTokenLimitFor(int64(cw))
 		}
 		sourceModels = append(sourceModels, entry)
 	}
@@ -1910,7 +1979,6 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec, windows m
 		return []string{"codex"}
 	}, false))
 	if data, ok := response["models"].([]map[string]any); ok {
-		hydrateCodexCompatibilityModels(data)
 		// Only declared routes to a known GPT template inherit capabilities.
 		var catalog struct {
 			Models []map[string]any `json:"models"`
@@ -1930,6 +1998,7 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec, windows m
 					"supported_reasoning_levels", "default_reasoning_level",
 					"service_tiers", "additional_speed_tiers",
 					"context_window", "max_context_window",
+					"auto_compact_token_limit",
 				} {
 					if value, exists := template[field]; exists {
 						model[field] = value
@@ -1992,6 +2061,9 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec, windows m
 					model["max_context_window"] = cw
 				}
 			}
+			// 窗口与压缩阈值必须成对下发：模板、路由继承或缺口补齐得到的窗口
+			// 都要带压缩阈值，不允许留空，也不允许出现永不触发压缩的 100%。
+			ensureCodexClientCompactionLimit(model)
 			if _, ok := model["additional_speed_tiers"]; !ok {
 				model["additional_speed_tiers"] = []any{}
 			}
@@ -2116,6 +2188,8 @@ func applyAutomaticRouteModelMetadata(spec *apiKeySpec, model map[string]any, sl
 // officialAutomaticModelDisplayName 返回 Cockpit 对官方命名空间模型的展示名。
 func officialAutomaticModelDisplayName(slug string) string {
 	switch strings.ToLower(strings.TrimSpace(slug)) {
+	case "gpt-6.1-sol":
+		return "GPT-6.1 Sol"
 	case "gpt-6-astra":
 		return "GPT-6 Astra"
 	case "gpt-6-sol":
@@ -2166,33 +2240,6 @@ func intModelValueAny(value any) int {
 	}
 }
 
-func hydrateCodexCompatibilityModels(models []map[string]any) {
-	var template map[string]any
-	for _, model := range models {
-		if model["slug"] == codexSparkCatalogTemplateModel {
-			template = model
-			break
-		}
-	}
-	if template == nil {
-		return
-	}
-
-	for index, model := range models {
-		if model["slug"] != codexSparkModel {
-			continue
-		}
-		compatibilityModel := make(map[string]any, len(template))
-		for key, value := range template {
-			compatibilityModel[key] = value
-		}
-		compatibilityModel["slug"] = codexSparkModel
-		compatibilityModel["display_name"] = "GPT-5.3 Codex Spark"
-		compatibilityModel["description"] = "GPT-5.3 Codex Spark"
-		models[index] = compatibilityModel
-	}
-}
-
 func displayNameForModel(model string) string {
 	switch model {
 	case "gpt-5-codex":
@@ -2205,6 +2252,8 @@ func displayNameForModel(model string) string {
 		return "GPT-5.6 Terra"
 	case "gpt-5.6-luna":
 		return "GPT-5.6 Luna"
+	case "gpt-6.1-sol":
+		return "GPT-6.1 Sol"
 	case "gpt-6-astra":
 		return "GPT-6 Astra"
 	case "gpt-6-sol":
@@ -2221,7 +2270,7 @@ func displayNameForModel(model string) string {
 		return "GPT-5.4 Mini"
 	case "gpt-5.3-codex":
 		return "GPT-5.3 Codex"
-	case codexSparkModel:
+	case "gpt-5.3-codex-spark":
 		return "GPT-5.3 Codex Spark"
 	case "gpt-5.2":
 		return "GPT-5.2"
@@ -2267,6 +2316,9 @@ func isCodexLiveRequest(r *http.Request) bool {
 		return false
 	}
 	path := strings.TrimRight(strings.TrimSpace(r.URL.Path), "/")
+	if path == "/backend-api/codex/realtime/calls" || strings.HasPrefix(path, "/backend-api/codex/realtime/calls/") {
+		return true
+	}
 	return path == "/v1/live" ||
 		strings.HasPrefix(path, "/v1/live/") ||
 		path == "/v1/realtime" ||
@@ -2387,7 +2439,7 @@ func rewriteBodyModel(m *manifest, spec *apiKeySpec, requestKind string, body []
 	}
 	if spec != nil && spec.ModelRouting != nil && spec.ModelRouting.Automatic {
 		if !automaticClientModelVisible(m, spec, model) {
-			return nil, model, fmt.Errorf("model %s is not available for this API key", model)
+			return nil, model, fmt.Errorf("%s", m.modelUnavailableMessage(model))
 		}
 		// Preserve client aliases for candidate lookup; canonicalization belongs
 		// to the selected native executor or provider route.
@@ -2395,13 +2447,13 @@ func rewriteBodyModel(m *manifest, spec *apiKeySpec, requestKind string, body []
 	}
 	if _, _, status := resolveModelRouting(spec, model); status != "none" {
 		if !routedClientModelAllowed(m, spec, model) {
-			return nil, model, fmt.Errorf("model %s is not available for this API key", model)
+			return nil, model, fmt.Errorf("%s", m.modelUnavailableMessage(model))
 		}
 		return nil, model, nil
 	}
 	canonical := canonicalModelForClientModel(m, spec, model)
 	if !validateClientModelVisible(m, spec, model, canonical) {
-		return nil, model, fmt.Errorf("模型 %s 不在当前 API Key 的可用模型范围内", model)
+		return nil, model, fmt.Errorf("%s", m.modelUnavailableMessage(model))
 	}
 	if canonical == model {
 		return nil, model, nil
@@ -2553,6 +2605,7 @@ func canonicalModelForClientModel(m *manifest, spec *apiKeySpec, model string) s
 // 工具调用写成文本标记返回（例如 DeepSeek 的 `<||DSML||...>`），客户端无法解析成工具调用，
 // 原始标记会直接落进正文，表现为「模型不能用工具」。
 var codexShellModelIDs = []string{
+	"gpt-6.1-sol",
 	"gpt-6-astra",
 	"gpt-6-sol",
 	"gpt-6-luna",
@@ -2560,11 +2613,6 @@ var codexShellModelIDs = []string{
 	"gpt-5.6-terra",
 	"gpt-5.6-luna",
 	"gpt-5.5",
-	"gpt-5.4",
-	"gpt-5.4-mini",
-	"gpt-5.3-codex",
-	"gpt-5.3-codex-spark",
-	"gpt-5.2",
 }
 
 func isCodexShellModelID(model string) bool {
@@ -2956,6 +3004,8 @@ func wildcardModelMatches(pattern, model string) bool {
 func requestKindFromPath(path string) string {
 	path = strings.ToLower(strings.TrimSpace(path))
 	switch {
+	case isAudioPath(path):
+		return "audio"
 	case strings.Contains(path, "/images/generations"):
 		return "image_generation"
 	case strings.Contains(path, "/images/edits"):

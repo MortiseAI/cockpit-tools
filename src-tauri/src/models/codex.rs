@@ -45,10 +45,68 @@ pub struct CodexExperimentalModelDefinition {
     /// None 表示跟随官方推理强度；Some 表示用户自定义可选推理强度集合。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_efforts: Option<Vec<String>>,
+    /// None preserves the official catalog default; explicit values must be supported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_compact_token_limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CodexModelConfigApiService {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_strategy: Option<super::codex_local_access::CodexLocalAccessRoutingStrategy>,
+    #[serde(default)]
+    pub model_pricings: Vec<super::codex_local_access::CodexLocalAccessModelPricing>,
+    #[serde(default)]
+    pub model_aliases: Vec<super::codex_local_access::CodexLocalAccessModelAlias>,
+    #[serde(default)]
+    pub account_model_rules: Vec<super::codex_local_access::CodexLocalAccessAccountModelRule>,
+    #[serde(default)]
+    pub custom_routing_rules: Vec<super::codex_local_access::CodexLocalAccessCustomRoutingRule>,
+    #[serde(default)]
+    pub excluded_models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CodexModelConfigDocument {
+    pub schema: String,
+    pub version: u32,
+    pub models: Vec<CodexExperimentalModelDefinition>,
+    #[serde(default)]
+    pub default_model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_service: Option<CodexModelConfigApiService>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexModelConfigImportEntry {
+    pub section: String,
+    pub id: String,
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexModelConfigImportPreview {
+    pub revision: String,
+    pub entries: Vec<CodexModelConfigImportEntry>,
+    pub added: Vec<String>,
+    pub updated: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub skipped: Vec<String>,
+    pub errors: Vec<String>,
+    pub committed: usize,
+    #[serde(default)]
+    pub models: Vec<CodexExperimentalModelDefinition>,
+    pub default_model_id: Option<String>,
 }
 
 /// Codex config.toml 快捷配置
@@ -192,6 +250,12 @@ pub struct CodexAccount {
     pub account_structure: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_note: Option<String>,
+    /// 账号级出口代理。留空时继续使用全局/API 服务代理。
+    #[serde(default, skip_serializing_if = "Option::is_none", rename(serialize = "egress_proxy"), serialize_with = "crate::modules::codex_account_proxy::serialize_summary")]
+    pub egress_proxy_url: Option<String>,
+    /// Explicit opt-out: bypass account/shared proxies without changing other accounts.
+    #[serde(default)]
+    pub egress_proxy_disabled: bool,
     /// Codex OAuth 设备指纹收敛模式。未设置时按 `off` 处理。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     // Legacy import/export metadata only; never projected into runtime credentials.
@@ -601,6 +665,8 @@ impl CodexAccount {
             account_name: None,
             account_structure: None,
             account_note: None,
+            egress_proxy_url: None,
+            egress_proxy_disabled: false,
             codex_fingerprint_mode: None,
             codex_cli_only: false,
             codex_cli_only_allow_app_server: false,

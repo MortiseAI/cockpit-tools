@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 
@@ -256,10 +257,16 @@ func (s *relayServer) handleImagesRelayRequest(c *gin.Context, imageReq imageRel
 		requestedModel = defaultImagesToolModel
 	}
 	if !validateClientModelVisible(s.manifest, spec, requestedModel, defaultImagesToolModel) {
-		writeAPIError(c, http.StatusNotFound, fmt.Sprintf("模型 %s 不在当前 API Key 的可用模型范围内", requestedModel), "model_not_available")
+		writeAPIError(c, http.StatusNotFound, s.manifest.modelUnavailableMessage(requestedModel), "model_not_available")
 		return
 	}
-	model := defaultImagesMainModel
+	model := configuredImagesMainModel(s.manifest)
+	body, err := sjson.SetBytes(imageReq.body, "model", model)
+	if err != nil {
+		writeAPIError(c, http.StatusBadRequest, err.Error(), "invalid_request")
+		return
+	}
+	imageReq.body = body
 	req, opts := buildExecutorRequest(c, imageReq.body, model, sdktranslator.FormatOpenAIResponse, "", true)
 	startedAt := time.Now()
 	timeouts := s.streamTimeoutsForRequest(c.Request, imageReq.body, defaultImagesToolModel)
@@ -357,10 +364,15 @@ func (s *relayServer) forwardImagesStream(c *gin.Context, ctx context.Context, r
 			}
 			idleTimer.Reset(idleTimeout)
 			if !ok {
+				terminal := false
 				for _, frame := range acc.Flush() {
 					if done := forwardImageResponseFrame(frame, imageReq, writeEvent, writeErr); done {
-						return
+						terminal = true
+						break
 					}
+				}
+				if !terminal {
+					writeErr(relayStatusError{status: http.StatusBadGateway, message: "image stream disconnected before completion"})
 				}
 				return
 			}
@@ -438,9 +450,38 @@ func forwardImageResponseFrame(frame []byte, imageReq imageRelayRequest, writeEv
 				writeEvent(eventName, data)
 			}
 			return true
+		case "response.failed", "response.incomplete", "response.error", "error":
+			writeErr(imageResponseTerminalError(event))
+			return true
 		}
 	}
 	return false
+}
+
+func imageResponseTerminalError(event map[string]any) error {
+	status := http.StatusBadGateway
+	message := "upstream image response failed"
+	code := "upstream_image_error"
+	response, _ := event["response"].(map[string]any)
+	if response == nil {
+		response = event
+	}
+	if errPayload, ok := response["error"].(map[string]any); ok {
+		if value := stringField(errPayload, "message"); value != "" {
+			message = value
+		}
+		if value := stringField(errPayload, "code"); value != "" {
+			code = value
+		} else if value := stringField(errPayload, "type"); value != "" {
+			code = value
+		}
+		if value, ok := numericField(errPayload["status_code"]); ok && value > 0 {
+			status = int(value)
+		}
+	} else if value := stringField(response, "message"); value != "" {
+		message = value
+	}
+	return relayStatusError{status: status, message: code + ": " + message}
 }
 
 func stringField(payload map[string]any, key string) string {
@@ -674,7 +715,11 @@ func processImageResponseFrame(frame []byte, responseFormat string) ([]byte, boo
 		if err := json.Unmarshal(payload, &event); err != nil {
 			return nil, false, relayStatusError{status: http.StatusBadGateway, message: "invalid SSE data JSON"}
 		}
-		if stringField(event, "type") != "response.completed" {
+		switch stringField(event, "type") {
+		case "response.failed", "response.incomplete", "response.error", "error":
+			return nil, false, imageResponseTerminalError(event)
+		case "response.completed":
+		default:
 			continue
 		}
 		results, usage, createdAt := extractImageResults(event)

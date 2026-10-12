@@ -220,9 +220,11 @@ Estas são as perguntas de segurança mais comuns respondidas diretamente:
 
 - **Esta é uma ferramenta para desktop local**: ela não requer uma conta de nuvem separada para este projeto e não depende do armazenamento em nuvem hospedado pelo projeto.
 - **Os dados são armazenados principalmente em sua máquina**:
-  - `~/.antigravity_cockpit`: Contas do Antigravity IDE, configurações, status do WebSocket, etc.
+  - `~/.antigravity_cockpit`: contas de todas as plataformas, configurações compartilhadas, registros, cópias de segurança e configurações de instâncias, tanto para desenvolvimento quanto para produção; `COCKPIT_TOOLS_DATA_DIR` permite definir um diretório personalizado
+  - Dados de instalações de desenvolvimento anteriores podem ser preservados seguindo o [guia de migração para o diretório compartilhado](docs/SHARED_DATA_DIRECTORY.md)
+  - As instâncias gerenciadas ficam, por padrão, em `instances/<plataforma>` no diretório compartilhado. No Windows, algumas plataformas usam `%APPDATA%\.cockpit_tools\instances\<plataforma>`, com a mesma compatibilidade automática para diretórios antigos. Diretórios personalizados permanecem inalterados
   - `~/.codex`: Arquivo `auth.json` de login atual do Codex
-  - Pasta de dados do aplicativo local em `com.antigravity.cockpit-tools`: Dados de índice de múltiplas contas do Codex / GitHub Copilot / Windsurf / Kiro / Cursor / CodeBuddy / CodeBuddy CN / Qoder / Trae / Zed, etc.
+  - Dados do aplicativo no sistema em `com.jlcodes.cockpit-tools`: estado do WebView do aplicativo e dados relacionados; os diretórios históricos `com.antigravity.cockpit-tools` são usados apenas para importar dados antigos
 - **O WebSocket é somente local por padrão**: vincula-se a `127.0.0.1`, porta padrão `19528`; você pode desativá-lo ou alterar a porta em Configurações.
 - **Quando ocorre acesso à rede**: login OAuth, atualização de token, obtenção de cota, verificações de atualização e outras solicitações oficiais da API.
 **Solicitações de permissão de privacidade do macOS**: após iniciar o Codex/agente a partir do Cockpit Tools, se um comando do shell executado pelo agente acessar pastas protegidas, como Área de Trabalho, Documentos, Downloads ou Fotos, o macOS poderá exibir a solicitação como "O Cockpit Tools gostaria de acessar...". Isso ocorre porque esses comandos são processos filhos iniciados pelo Cockpit Tools, portanto, o macOS atribui a solicitação ao aplicativo host; isso não significa, por si só, que o processo principal do Cockpit Tools esteja ativamente verificando essas pastas. Conceda acesso somente se você confiar na tarefa atual do agente e nos comandos que ela executará. Em caso de dúvida, negue a solicitação ou execute o projeto a partir de um diretório de trabalho normal primeiro.

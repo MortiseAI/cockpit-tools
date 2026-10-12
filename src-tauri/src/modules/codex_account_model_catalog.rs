@@ -1,5 +1,6 @@
 // Codex 账号模块：Model catalog, quick config and provider catalog persistence。
 // 通过 include! 保持原 modules::codex_account 作用域，完整保留私有调用关系。
+include!("codex_account_model_config_transfer.rs");
 /// 获取 Codex 数据目录
 pub fn get_codex_home() -> PathBuf {
     if let Some(from_env) = resolve_codex_home_from_env() {
@@ -503,13 +504,14 @@ fn migrate_builtin_model_display_names(
 fn prioritize_gpt_6_model_definitions(
     mut models: Vec<CodexExperimentalModelDefinition>,
 ) -> Vec<CodexExperimentalModelDefinition> {
-    for (target_index, model_id) in [
+    let mut target_index = 0;
+    for model_id in [
+        GPT_6_1_SOL_MODEL_ID,
         GPT_6_ASTRA_MODEL_ID,
         GPT_6_SOL_MODEL_ID,
         GPT_6_LUNA_MODEL_ID,
     ]
     .into_iter()
-    .enumerate()
     {
         let Some(index) = models
             .iter()
@@ -521,6 +523,7 @@ fn prioritize_gpt_6_model_definitions(
             let model = models.remove(index);
             models.insert(target_index, model);
         }
+        target_index += 1;
     }
     models
 }
@@ -635,6 +638,7 @@ fn default_experimental_model_definitions(
                         model_id: model_id.to_string(),
                         display_name: model_catalog_display_name(model_id, display_name),
                         reasoning_efforts: None,
+                        default_reasoning_effort: None,
                         context_window: None,
                         auto_compact_token_limit: None,
                     })
@@ -649,6 +653,7 @@ fn default_experimental_model_definitions(
                 display_name: model_id.clone(),
                 model_id,
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: None,
                 auto_compact_token_limit: None,
             })
@@ -792,11 +797,44 @@ fn maybe_add_gpt_6_sol_luna_model_definitions(
     models
 }
 
+/// Extend an unchanged previous shipped catalog once; preserve curated lists.
+fn maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(
+    base_dir: &Path,
+    mut models: Vec<CodexExperimentalModelDefinition>,
+) -> Vec<CodexExperimentalModelDefinition> {
+    if models
+        .iter()
+        .any(|model| model.model_id.eq_ignore_ascii_case(GPT_6_1_SOL_MODEL_ID))
+    {
+        return prioritize_gpt_6_model_definitions(models);
+    }
+    let ids = models
+        .iter()
+        .map(|model| model.model_id.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    if !SHIPPED_VISIBLE_CODEX_MODEL_IDS
+        .iter()
+        .filter(|id| **id != GPT_6_1_SOL_MODEL_ID && **id != "gpt-reserve")
+        .filter(|id| !crate::modules::codex_wakeup::is_codex_model_before_5_5(id))
+        .all(|id| ids.contains(&id.to_ascii_lowercase()))
+    {
+        return models;
+    }
+    if let Some(model) = default_experimental_model_definitions(base_dir)
+        .into_iter()
+        .find(|model| model.model_id.eq_ignore_ascii_case(GPT_6_1_SOL_MODEL_ID))
+    {
+        models.insert(0, model);
+    }
+    prioritize_gpt_6_model_definitions(models)
+}
+
 fn model_catalog_display_name(model_id: &str, fallback: &str) -> String {
     match model_id.trim().to_ascii_lowercase().as_str() {
         "gpt-5.6-sol" => "GPT-5.6 Sol".to_string(),
         "gpt-5.6-terra" => "GPT-5.6 Terra".to_string(),
         "gpt-5.6-luna" => "GPT-5.6 Luna".to_string(),
+        GPT_6_1_SOL_MODEL_ID => "GPT-6.1 Sol".to_string(),
         GPT_6_ASTRA_MODEL_ID => "GPT-6 Astra".to_string(),
         GPT_6_SOL_MODEL_ID => "GPT-6 Sol".to_string(),
         GPT_6_LUNA_MODEL_ID => "GPT-6 Luna".to_string(),
@@ -840,6 +878,58 @@ fn normalize_reasoning_efforts(
     Ok(Some(normalized))
 }
 
+/// Use the same rendered catalog metadata as the client, including template limits.
+pub(crate) fn model_reasoning_efforts(
+    models: &[CodexExperimentalModelDefinition],
+) -> HashMap<String, Vec<String>> {
+    let definitions = models.iter().map(|model| (
+        model.model_id.clone(), model.display_name.clone(), model.reasoning_efforts.clone(),
+    )).collect::<Vec<_>>();
+    let catalog = crate::modules::codex_protocol::build_codex_client_models_response_with_model_definitions_and_reasoning(&definitions);
+    catalog["models"].as_array().into_iter().flatten().filter_map(|model| {
+        let id = model["slug"].as_str()?;
+        let efforts = model["supported_reasoning_levels"].as_array().into_iter().flatten()
+            .filter_map(|level| level["effort"].as_str().map(str::to_owned)).collect();
+        Some((id.to_string(), efforts))
+    }).collect()
+}
+
+pub(crate) fn model_reasoning_efforts_for_profile(
+    base_dir: &Path,
+    models: &[CodexExperimentalModelDefinition],
+) -> HashMap<String, Vec<String>> {
+    let mut result = model_reasoning_efforts(models);
+    let catalog = fs::read_to_string(experimental_model_catalog_path(base_dir)).ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+    for model in models {
+        // Official GPT metadata comes from the bundled source, rather than a previously
+        // narrowed user override. Supplier/namespaced models use the actual profile template.
+        if model.model_id.to_ascii_lowercase().starts_with("gpt-") { continue; }
+        let entry = catalog.as_ref().and_then(|catalog| catalog["models"].as_array())
+            .and_then(|entries| entries.iter().find(|entry| entry["slug"].as_str()
+                .is_some_and(|id| id.eq_ignore_ascii_case(&model.model_id))));
+        let Some(entry) = entry else { continue; };
+        let efforts = entry["supported_reasoning_levels"].as_array().into_iter().flatten()
+            .filter_map(|level| level["effort"].as_str().map(str::to_owned))
+            .filter(|effort| model.reasoning_efforts.as_ref().is_none_or(|efforts| efforts.contains(effort)))
+            .collect::<Vec<_>>();
+        if !efforts.is_empty() { result.insert(model.model_id.clone(), efforts); }
+    }
+    result
+}
+
+fn validate_profile_default_reasoning_efforts(base_dir: &Path, models: &[CodexExperimentalModelDefinition]) -> Result<(), String> {
+    let efforts = model_reasoning_efforts_for_profile(base_dir, models);
+    for model in models {
+        if let Some(default) = model.default_reasoning_effort.as_ref() {
+            if !efforts.get(&model.model_id).is_some_and(|efforts| efforts.contains(default)) {
+                return Err("EXPERIMENTAL_MODEL_CATALOG_DEFAULT_REASONING_INVALID".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn normalize_experimental_model_definitions(
     models: Vec<CodexExperimentalModelDefinition>,
 ) -> Result<Vec<CodexExperimentalModelDefinition>, String> {
@@ -867,12 +957,14 @@ pub(crate) fn normalize_experimental_model_definitions(
         {
             return Err("EXPERIMENTAL_MODEL_CATALOG_CONTEXT_WINDOW_INVALID".to_string());
         }
-        if model.auto_compact_token_limit.is_some_and(|value| value <= 0)
-            || (model.context_window.is_some() && model.auto_compact_token_limit.is_none())
-        {
+        if model.auto_compact_token_limit.is_some_and(|value| value <= 0) {
             return Err("EXPERIMENTAL_MODEL_CATALOG_AUTO_COMPACT_INVALID".to_string());
         }
-        if let (Some(window), Some(compact)) = (model.context_window, model.auto_compact_token_limit) {
+        // 统一口径：给了上下文窗口就必须带压缩阈值；调用方只给窗口时按 90% 派生，
+        // 但显式给出的阈值必须严格小于窗口。
+        if let (Some(window), Some(compact)) =
+            (model.context_window, model.auto_compact_token_limit)
+        {
             if compact >= window {
                 return Err("EXPERIMENTAL_MODEL_CATALOG_AUTO_COMPACT_RANGE_INVALID".to_string());
             }
@@ -887,13 +979,31 @@ pub(crate) fn normalize_experimental_model_definitions(
         }) {
             return Err("EXPERIMENTAL_MODEL_CATALOG_REASONING_EFFORT_INVALID".to_string());
         }
-        normalized.push(CodexExperimentalModelDefinition {
+        let default_reasoning_effort = model.default_reasoning_effort.as_deref()
+            .map(str::trim).filter(|value| !value.is_empty()).map(str::to_ascii_lowercase);
+        let definition = CodexExperimentalModelDefinition {
             model_id: model_id.to_string(),
             display_name: display_name.to_string(),
             reasoning_efforts,
+            default_reasoning_effort,
             context_window: model.context_window,
-            auto_compact_token_limit: model.auto_compact_token_limit,
-        });
+            auto_compact_token_limit: model.context_window.map(|window| {
+                model
+                    .auto_compact_token_limit
+                    .unwrap_or_else(|| {
+                        crate::modules::codex_protocol::derived_auto_compact_token_limit(window)
+                    })
+            }),
+        };
+        if let Some(default) = definition.default_reasoning_effort.as_ref() {
+            if !CODEX_REASONING_EFFORTS.contains(&default.as_str())
+                || !model_reasoning_efforts(std::slice::from_ref(&definition))
+                    .get(model_id).is_some_and(|efforts| efforts.contains(default))
+            {
+                return Err("EXPERIMENTAL_MODEL_CATALOG_DEFAULT_REASONING_INVALID".to_string());
+            }
+        }
+        normalized.push(definition);
     }
     Ok(normalized)
 }
@@ -935,30 +1045,39 @@ pub(crate) fn read_experimental_model_definitions(
                     }
                 }
             }
+            let should_add_sol_61 = !config
+                .migrations
+                .iter()
+                .any(|item| item == GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID);
             normalize_experimental_model_definitions(config.models).map(|models| {
                 (
                     models,
                     requires_catalog_migration,
                     should_add_astra,
                     should_add_sol_luna,
+                    should_add_sol_61,
                 )
             })
-        })
-    {
-        Ok((_models, true, _, _)) => {
+        }) {
+        Ok((_models, true, _, _, _)) => {
             // A release migration intentionally resets all pre-release lists to the
             // shipped visible-model preset. Later user edits are preserved by version 4+
             // and the additive Astra / GPT-6 Sol-Luna migration markers.
             default_experimental_model_definitions(base_dir)
         }
-        Ok((models, false, should_add_astra, should_add_sol_luna)) => {
+        Ok((models, false, should_add_astra, should_add_sol_luna, should_add_sol_61)) => {
             let models = if should_add_astra {
                 maybe_add_gpt_6_astra_to_previous_shipped_model_definitions(base_dir, models)
             } else {
                 prioritize_gpt_6_model_definitions(models)
             };
-            if should_add_sol_luna {
+            let models = if should_add_sol_luna {
                 maybe_add_gpt_6_sol_luna_to_previous_shipped_model_definitions(base_dir, models)
+            } else {
+                prioritize_gpt_6_model_definitions(models)
+            };
+            if should_add_sol_61 {
+                maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(base_dir, models)
             } else {
                 prioritize_gpt_6_model_definitions(models)
             }
@@ -978,6 +1097,7 @@ pub(crate) fn read_experimental_model_definitions(
             model_id: "gpt-reserve".to_string(),
             display_name: crate::modules::codex_protocol::CODEX_RESERVE_DISPLAY_NAME.to_string(),
             reasoning_efforts: None,
+            default_reasoning_effort: None,
             context_window: None,
             auto_compact_token_limit: None,
         });
@@ -998,6 +1118,7 @@ fn persist_experimental_model_definitions(
     let models = prioritize_gpt_6_model_definitions(normalize_experimental_model_definitions(
         models,
     )?);
+    validate_profile_default_reasoning_efforts(base_dir, &models)?;
     let mut default_model_id = default_model_id.and_then(|value| {
         models
             .iter()
@@ -1036,6 +1157,9 @@ fn persist_experimental_model_definitions(
         .any(|item| item == GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID)
     {
         migrations.push(GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID.to_string());
+    }
+    if !migrations.iter().any(|item| item == GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID) {
+        migrations.push(GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID.to_string());
     }
     let mut content = serde_json::to_string_pretty(&ExperimentalModelCatalogConfig {
         version: EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION,
@@ -1091,6 +1215,34 @@ fn apply_model_context_config_to_catalog(
     crate::modules::codex_protocol::apply_model_context_overrides(catalog, &definitions);
 }
 
+fn apply_model_reasoning_config_to_catalog(
+    catalog: &mut serde_json::Value,
+    definitions: &[CodexExperimentalModelDefinition],
+) -> Result<(), String> {
+    for entry in catalog["models"].as_array_mut().into_iter().flatten() {
+        let Some(definition) = definitions.iter().find(|definition| entry["slug"].as_str()
+            .is_some_and(|id| id.eq_ignore_ascii_case(&definition.model_id))) else { continue; };
+        if let Some(efforts) = definition.reasoning_efforts.as_ref() {
+            let levels = entry["supported_reasoning_levels"].as_array().cloned().unwrap_or_default();
+            let selected = levels.into_iter().filter(|level| level["effort"].as_str()
+                .is_some_and(|value| efforts.iter().any(|effort| effort == value))).collect::<Vec<_>>();
+            if !selected.is_empty() {
+                entry["supported_reasoning_levels"] = serde_json::json!(selected);
+                if !selected.iter().any(|level| level["effort"] == entry["default_reasoning_level"]) {
+                    entry["default_reasoning_level"] = selected[0]["effort"].clone();
+                }
+            }
+        }
+        if let Some(default) = definition.default_reasoning_effort.as_ref() {
+            let supported = entry["supported_reasoning_levels"].as_array().is_some_and(|levels|
+                levels.iter().any(|level| level["effort"].as_str() == Some(default)));
+            if !supported { return Err("EXPERIMENTAL_MODEL_CATALOG_DEFAULT_REASONING_INVALID".to_string()); }
+            entry["default_reasoning_level"] = serde_json::json!(default);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn decorate_managed_model_catalog_for_profile(
     base_dir: &Path,
     catalog_json: &str,
@@ -1098,13 +1250,14 @@ pub(crate) fn decorate_managed_model_catalog_for_profile(
     if !experimental_model_policy_enabled(base_dir) {
         return Ok(catalog_json.to_string());
     }
-    let models = read_experimental_model_definitions(base_dir);
-    if !models.iter().any(|model| model.context_window.is_some()) {
-        return Ok(catalog_json.to_string());
-    }
     let mut catalog = serde_json::from_str::<serde_json::Value>(catalog_json)
         .map_err(|error| format!("解析 Codex 受管模型目录失败: {}", error))?;
+    let models = read_experimental_model_definitions(base_dir);
     apply_model_context_config_to_catalog(&mut catalog, &models);
+    apply_model_reasoning_config_to_catalog(&mut catalog, &models)?;
+    // 统一口径收口：即使没有任何逐模型覆盖，也要保证受管目录里每个声明了上下文窗口的
+    // 模型都带自动压缩阈值（缺失时按 90% 派生）。
+    crate::modules::codex_protocol::ensure_client_model_auto_compact_limits(&mut catalog);
     serde_json::to_string_pretty(&catalog)
         .map_err(|error| format!("序列化 Codex 受管模型目录失败: {}", error))
 }
@@ -1125,6 +1278,7 @@ fn build_experimental_model_catalog(base_dir: &Path) -> Result<String, String> {
         crate::modules::codex_protocol::build_codex_client_models_response_with_model_definitions_and_reasoning(&definitions);
     crate::modules::codex_protocol::ensure_codex_reserve_fallback(&mut catalog);
     apply_model_context_config_to_catalog(&mut catalog, &model_definitions);
+    apply_model_reasoning_config_to_catalog(&mut catalog, &model_definitions)?;
     serde_json::to_string_pretty(&catalog)
         .map(|mut content| {
             content.push('\n');
@@ -1203,6 +1357,9 @@ fn merge_existing_catalog_into_experimental_catalog(
         }
     }
 
+    apply_model_context_config_to_catalog(&mut merged_catalog, &read_experimental_model_definitions(base_dir));
+    apply_model_reasoning_config_to_catalog(&mut merged_catalog, &read_experimental_model_definitions(base_dir))?;
+
     serde_json::to_string_pretty(&merged_catalog)
         .map(|mut content| {
             content.push('\n');
@@ -1257,17 +1414,31 @@ fn read_catalog_model_definitions(
             let official = crate::modules::codex_protocol::build_codex_client_models_response(
                 &[model_id.to_string()],
             );
-            let (context_window, auto_compact_token_limit) = match (context, compact) {
-                (Some(window), Some(limit)) if window > limit && limit > 0
-                    && (official["models"][0]["context_window"].as_i64() != Some(window)
-                        || official["models"][0]["auto_compact_token_limit"].as_i64() != Some(limit)) =>
-                    (Some(window), Some(limit)),
-                _ => (None, None),
+            // 统一口径：外部目录只要声明了有效上下文窗口就采纳，压缩阈值缺失时按 90%
+            // 派生，不再因为「没有阈值」把整对覆盖丢掉。
+            let (context_window, auto_compact_token_limit) = match context.filter(|value| *value > 0)
+            {
+                Some(window) => {
+                    let limit = compact
+                        .filter(|value| *value > 0 && *value < window)
+                        .unwrap_or_else(|| {
+                            crate::modules::codex_protocol::derived_auto_compact_token_limit(window)
+                        });
+                    if official["models"][0]["context_window"].as_i64() == Some(window)
+                        && official["models"][0]["auto_compact_token_limit"].as_i64() == Some(limit)
+                    {
+                        (None, None)
+                    } else {
+                        (Some(window), Some(limit))
+                    }
+                }
+                None => (None, None),
             };
             Some(CodexExperimentalModelDefinition {
                 model_id: model_id.to_string(),
                 display_name: model_catalog_display_name(model_id, display_name),
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window,
                 auto_compact_token_limit,
             })
@@ -1419,6 +1590,24 @@ fn apply_experimental_model_catalog_to_doc(
             .any(|model| model.model_id.eq_ignore_ascii_case(&default_model_id))
         {
             doc["model"] = value(default_model_id);
+        }
+    }
+    // Avoid dispatching an absent retired choice through this owned catalog.
+    // Explicit provider entries and supported selections remain unchanged.
+    if let Some(selected) = doc.get("model").and_then(|item| item.as_str()) {
+        if user_catalog_reference.is_none()
+            && crate::modules::codex_wakeup::is_codex_model_before_5_5(selected)
+            && !experimental_models
+                .iter()
+                .any(|model| model.model_id.eq_ignore_ascii_case(selected))
+        {
+            if let Some(fallback) = experimental_models
+                .iter()
+                .find(|model| model.model_id == DEFAULT_CODEX_MODEL_ID)
+                .or_else(|| experimental_models.first())
+            {
+                doc["model"] = value(fallback.model_id.as_str());
+            }
         }
     }
     let content = if has_saved_model_definitions && !migrate_saved_model_definitions {
@@ -1783,17 +1972,21 @@ fn write_quick_config_to_config_toml_with_default_mode(
             if context_window <= 0 {
                 return Err("上下文窗口必须大于 0".to_string());
             }
-            doc[CODEX_CONFIG_MODEL_CONTEXT_WINDOW_KEY] = value(context_window);
-        } else {
-            let _ = doc.remove(CODEX_CONFIG_MODEL_CONTEXT_WINDOW_KEY);
-        }
-
-        if let Some(compact_limit) = auto_compact_token_limit {
-            if compact_limit <= 0 {
-                return Err("自动压缩阈值必须大于 0".to_string());
+            // 统一口径：写了上下文窗口就必须同时写自动压缩阈值；调用方没给阈值时按
+            // 90% 派生，避免 config.toml 里出现「有窗口无阈值」的半边配置。
+            let compact_limit = auto_compact_token_limit
+                .filter(|value| *value > 0)
+                .unwrap_or_else(|| {
+                    crate::modules::codex_protocol::derived_auto_compact_token_limit(context_window)
+                });
+            if compact_limit >= context_window {
+                return Err("自动压缩阈值必须小于上下文窗口".to_string());
             }
+            doc[CODEX_CONFIG_MODEL_CONTEXT_WINDOW_KEY] = value(context_window);
             doc[CODEX_CONFIG_MODEL_AUTO_COMPACT_TOKEN_LIMIT_KEY] = value(compact_limit);
         } else {
+            // 跟随官方：两个键必须一起移除，不允许留下孤立的压缩阈值。
+            let _ = doc.remove(CODEX_CONFIG_MODEL_CONTEXT_WINDOW_KEY);
             let _ = doc.remove(CODEX_CONFIG_MODEL_AUTO_COMPACT_TOKEN_LIMIT_KEY);
         }
     }
@@ -2080,6 +2273,150 @@ fn apply_forced_login_method_to_config_toml(
     Ok(true)
 }
 
+/// profile 级「工具写入的 provider 引用」快照文件名。
+///
+/// 切到第三方/自建供应商账号时，工具会把 `model_provider` 与 `[model_providers.<id>]` 写进官方
+/// profile 的 config.toml（含 DeepSeek、自建中转等）。切回官方内置 provider 时，官方账号投影只
+/// 清理受管 provider（`openai` / `codex_local_access` / `cockpit_api` / `openai_api_key`），其余 id
+/// 会被当作用户自定义 provider 保留——于是「账号已切回官方，客户端仍按上一个供应商发请求」
+/// （例如切回普通账号后一直显示 DeepSeek）。
+///
+/// 因此写入前按 profile 记录原值，切回官方内置 provider 时按同一份记录还原；这是 profile 级
+/// 状态，多开实例天然隔离，也不需要按供应商 id 写特判。
+const CODEX_PROVIDER_OVERRIDE_FILE: &str = "cockpit-provider-override.json";
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexProviderOverrideSnapshot {
+    provider_id: String,
+    /// 写入前 `model` 的原值；`None` 表示原本没有这个键。
+    #[serde(default)]
+    model: Option<String>,
+    /// 写入前 `model_provider` 的原值；`None` 表示原本没有这个键。
+    #[serde(default)]
+    model_provider: Option<String>,
+    /// 写入前 `[model_providers.<id>]` 的 TOML 片段；`None` 表示原本没有该表项。
+    #[serde(default)]
+    provider_table: Option<String>,
+}
+
+fn provider_override_snapshot_path(base_dir: &Path) -> PathBuf {
+    base_dir.join(CODEX_PROVIDER_OVERRIDE_FILE)
+}
+
+fn read_top_level_config_string(doc: &Document, key: &str) -> Option<String> {
+    doc.get(key).and_then(|item| item.as_str()).map(str::to_string)
+}
+
+/// 写入工具 provider 之前记录原值。已有快照时不覆盖：一份快照对应一次「工具接管」，
+/// 必须保留最早的用户原值，否则切走时只会还原成上一次的接管状态。
+fn record_provider_override_snapshot(doc: &Document, base_dir: &Path, provider_id: &str) {
+    let provider_id = provider_id.trim();
+    if provider_id.is_empty() {
+        return;
+    }
+    let path = provider_override_snapshot_path(base_dir);
+    if path.exists() {
+        return;
+    }
+    let snapshot = CodexProviderOverrideSnapshot {
+        provider_id: provider_id.to_string(),
+        model: read_top_level_config_string(doc, CODEX_CONFIG_MODEL_KEY),
+        model_provider: read_top_level_config_string(doc, CODEX_CONFIG_MODEL_PROVIDER_KEY),
+        provider_table: doc
+            .get(CODEX_CONFIG_MODEL_PROVIDERS_KEY)
+            .and_then(|item| item.get(provider_id))
+            .map(ToString::to_string),
+    };
+    let Ok(content) = serde_json::to_string_pretty(&snapshot) else {
+        return;
+    };
+    if let Err(error) = crate::modules::atomic_write::write_string_atomic(&path, &content) {
+        logger::log_warn(&format!(
+            "[Codex切号] 记录 provider 引用快照失败: path={}, error={}",
+            path.display(),
+            error
+        ));
+    }
+}
+
+/// 还原 `[model_providers.<id>]`：原本存在就写回原内容，原本不存在就移除工具写入的表项。
+fn restore_provider_table_entry(doc: &mut Document, provider_id: &str, snapshot: Option<&str>) {
+    let previous = snapshot.and_then(|raw| {
+        let escaped = provider_id.replace('\\', "\\\\").replace('"', "\\\"");
+        crate::modules::codex_config_format::read_codex_config_doc_from_str(&format!(
+            "[model_providers.\"{escaped}\"]\n{raw}"
+        ))
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .get(CODEX_CONFIG_MODEL_PROVIDERS_KEY)
+                .and_then(|item| item.get(provider_id))
+                .cloned()
+        })
+    });
+    let providers_empty = doc
+        .get_mut(CODEX_CONFIG_MODEL_PROVIDERS_KEY)
+        .and_then(|item| item.as_table_mut())
+        .map(|providers| {
+            match previous {
+                Some(item) => {
+                    providers.insert(provider_id, item);
+                }
+                None => {
+                    let _ = providers.remove(provider_id);
+                }
+            }
+            providers.is_empty()
+        })
+        .unwrap_or(false);
+    if providers_empty {
+        let _ = doc.remove(CODEX_CONFIG_MODEL_PROVIDERS_KEY);
+    }
+}
+
+/// 切回官方内置 provider 时按快照还原工具写入的 provider 引用。
+///
+/// 必须在清理当前 provider 前调用，才能识别用户在工具写入之后做出的选择。
+fn restore_provider_override_snapshot(base_dir: &Path, doc: &mut Document) -> bool {
+    let path = provider_override_snapshot_path(base_dir);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return false;
+    };
+    // 快照只服务一次还原：无论能否应用都丢弃，避免过期记录影响后续切号。
+    let _ = fs::remove_file(&path);
+    let Ok(snapshot) = serde_json::from_str::<CodexProviderOverrideSnapshot>(&content) else {
+        return false;
+    };
+    let provider_id = snapshot.provider_id.trim().to_string();
+    if provider_id.is_empty() {
+        return false;
+    }
+    // 用户可能又手动切到了别的供应商：保留用户当前选择，只丢弃过期快照。
+    let current_provider = doc
+        .get(CODEX_CONFIG_MODEL_PROVIDER_KEY)
+        .and_then(|item| item.as_str())
+        .map(str::trim);
+    if current_provider != Some(provider_id.as_str()) {
+        return false;
+    }
+
+    match snapshot.model_provider.as_deref() {
+        Some(previous) => doc[CODEX_CONFIG_MODEL_PROVIDER_KEY] = value(previous),
+        None => {
+            let _ = doc.remove(CODEX_CONFIG_MODEL_PROVIDER_KEY);
+        }
+    }
+    match snapshot.model.as_deref() {
+        Some(previous) => doc[CODEX_CONFIG_MODEL_KEY] = value(previous),
+        None => {
+            let _ = doc.remove(CODEX_CONFIG_MODEL_KEY);
+        }
+    }
+    restore_provider_table_entry(doc, &provider_id, snapshot.provider_table.as_deref());
+    true
+}
+
 fn write_api_provider_to_config_toml_with_options(
     base_dir: &Path,
     provider_config: &ApiProviderConfig,
@@ -2102,6 +2439,9 @@ fn write_api_provider_to_config_toml_with_options(
 
     match provider_config.mode {
         CodexApiProviderMode::OpenaiBuiltin => {
+            // 先根据尚未清理的当前选择还原快照；用户已改选（含移除 provider）时保留
+            // 当前 provider/model。之后再统一清理受管引用，旧快照也不能复活运行时 provider。
+            restore_provider_override_snapshot(base_dir, &mut doc);
             let preserved_user_model_provider = doc
                 .get(CODEX_CONFIG_MODEL_PROVIDER_KEY)
                 .and_then(|item| item.as_str())
@@ -2151,6 +2491,7 @@ fn write_api_provider_to_config_toml_with_options(
                 .unwrap_or(provider_id);
             let base_url = normalized.as_deref().ok_or("自定义供应商缺少 Base URL")?;
 
+            let _ = record_provider_override_snapshot(&doc, base_dir, provider_id);
             doc[CODEX_CONFIG_MODEL_PROVIDER_KEY] = value(provider_id);
             if doc.get(CODEX_CONFIG_MODEL_PROVIDERS_KEY).is_none() {
                 doc[CODEX_CONFIG_MODEL_PROVIDERS_KEY] = toml_edit::table();
@@ -2563,6 +2904,7 @@ fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), Stri
                 model_id: id.clone(),
                 display_name: id.clone(),
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: None,
                 auto_compact_token_limit: None,
             })
@@ -2979,6 +3321,8 @@ fn write_deepseek_official_responses_runtime_to_dir(
             .map_err(|e| format!("解析 config.toml 失败: {}", e))?
     };
 
+    // 记录写入前的 model / model_provider / provider 表，切回官方账号时按同一份快照还原。
+    record_provider_override_snapshot(&doc, base_dir, DEEPSEEK_PROVIDER_ID);
     doc["model"] = value(selected_model.as_str());
     let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
     crate::modules::codex_account::apply_deepseek_reasoning_effort(&mut doc);

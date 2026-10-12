@@ -40,13 +40,26 @@ func translateCodexRequestPair(from, to sdktranslator.Format, model string, orig
 		}
 		return sdktranslator.TranslateRequest(from, to, model, raw, stream)
 	}
+	// OAuth translation strips unsupported tiers such as default/flex. Keep
+	// their explicit presence in the defaults-checking snapshot so a configured
+	// paid Fast default cannot silently replace a client's Standard choice.
+	preserveTierSelection := func(raw, translated []byte) []byte {
+		tier := gjson.GetBytes(raw, "service_tier")
+		if tier.Exists() && !gjson.GetBytes(translated, "service_tier").Exists() {
+			protected, errSet := sjson.SetRawBytes(append([]byte(nil), translated...), "service_tier", []byte(tier.Raw))
+			if errSet == nil {
+				return protected
+			}
+		}
+		return translated
+	}
 	if bytes.Equal(originalPayload, payload) {
 		body := translate(payload)
-		return body, body
+		return preserveTierSelection(originalPayload, body), body
 	}
 	originalTranslated := translate(originalPayload)
 	body := translate(payload)
-	return originalTranslated, body
+	return preserveTierSelection(originalPayload, originalTranslated), body
 }
 
 // PrepareRequest injects Codex credentials into the outgoing HTTP request.
@@ -286,6 +299,26 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 		ginHeaders = ginCtx.Request.Header
 	}
 	applyCodexHeadersFromSources(r, auth, token, stream, cfg, ginHeaders)
+}
+
+// applyCodexRoutingHint mirrors the native Codex client hint used by the
+// ChatGPT backend. It is derived after request translation so the tier cannot
+// become stale. API-key passthrough requests intentionally do not receive it.
+func applyCodexRoutingHint(headers http.Header, auth *cliproxyauth.Auth, model string, upstreamBody []byte) {
+	if headers == nil || codexAuthUsesAPIKey(auth) {
+		return
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	hint := "model=" + model
+	if tier := gjson.GetBytes(upstreamBody, "service_tier"); tier.Type == gjson.String {
+		if value := strings.TrimSpace(tier.String()); value != "" {
+			hint += ";tier=" + value
+		}
+	}
+	headers.Set("X-Codex-Routing-Hint", hint)
 }
 
 // applyModelHeaderOverrides forces models.json config.override_header onto upstream headers.

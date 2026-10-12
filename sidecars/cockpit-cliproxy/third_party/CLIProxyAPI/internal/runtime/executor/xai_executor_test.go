@@ -386,10 +386,24 @@ func TestXAIExecutorPrepareResponsesRequestRewritesCodexAgentMessage(t *testing.
 	if message.Get("content.1.encrypted_content").Exists() {
 		t.Fatalf("encrypted_content was preserved: %s", prepared.body)
 	}
-	if message.Get("id").String() != "amsg_019f92c3-6d77-7880-a6e4-f920867dc6a0" || message.Get("author").String() != "/root" || message.Get("recipient").String() != "/root/arithmetic_question" {
+	for _, key := range []string{"id", "author", "recipient", "internal_chat_message_metadata_passthrough"} {
+		if message.Get(key).Exists() {
+			t.Fatalf("private agent field %q reached upstream: %s", key, prepared.body)
+		}
+	}
+	if message.Get("content.#").Int() != 3 || message.Get("content.2.type").String() != "input_text" {
+		t.Fatalf("agent routing metadata block missing: %s", prepared.body)
+	}
+	const prefix = "Agent routing metadata: "
+	metadataText := message.Get("content.2.text").String()
+	if !strings.HasPrefix(metadataText, prefix) {
+		t.Fatalf("agent routing metadata prefix missing: %s", prepared.body)
+	}
+	metadata := gjson.Parse(strings.TrimPrefix(metadataText, prefix))
+	if metadata.Get("id").String() != "amsg_019f92c3-6d77-7880-a6e4-f920867dc6a0" || metadata.Get("author").String() != "/root" || metadata.Get("recipient").String() != "/root/arithmetic_question" {
 		t.Fatalf("agent message identity fields changed: %s", prepared.body)
 	}
-	if turnID := message.Get("internal_chat_message_metadata_passthrough.turn_id").String(); turnID != "019f92c3-6772-7213-8aac-8bd154d528f1" {
+	if turnID := metadata.Get("internal_chat_message_metadata_passthrough.turn_id").String(); turnID != "019f92c3-6772-7213-8aac-8bd154d528f1" {
 		t.Fatalf("turn_id = %q; body=%s", turnID, prepared.body)
 	}
 }
@@ -5959,6 +5973,16 @@ func TestXAICompactBaseURL(t *testing.T) {
 }
 
 func TestApplyXAIChatHeaders(t *testing.T) {
+	t.Run("pinned version meets upstream reported server floor", func(t *testing.T) {
+		// Upstream #6252 reports a 1.0.13 floor; do not regress to 0.2.x.
+		var major, minor, patch int
+		if n, err := fmt.Sscanf(xaiClientVersionValue, "%d.%d.%d", &major, &minor, &patch); err != nil || n != 3 {
+			t.Fatalf("invalid pinned Grok client version %q", xaiClientVersionValue)
+		}
+		if major < 1 || (major == 1 && minor == 0 && patch < 13) {
+			t.Fatalf("pinned Grok client version %q is below upstream reported floor 1.0.13", xaiClientVersionValue)
+		}
+	})
 	t.Run("non OAuth defaults to official API headers", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "https://example.invalid/responses", nil)
 		auth := &cliproxyauth.Auth{
@@ -6055,6 +6079,7 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 				xaiUsingAPIAttr:                    "false",
 				"header:" + xaiTokenAuthHeader:     "custom-token-auth",
 				"header:" + xaiClientVersionHeader: "custom-client-version",
+				"header:User-Agent":                "custom-agent/9.9.9",
 				"header:x-grok-client-identifier":  "custom-client-identifier",
 				"header:x-authenticateresponse":    "custom-authenticate-response",
 			},
@@ -6066,6 +6091,9 @@ func TestApplyXAIChatHeaders(t *testing.T) {
 		}
 		if got := req.Header.Get(xaiClientVersionHeader); got != "custom-client-version" {
 			t.Fatalf("%s = %q, want custom-client-version", xaiClientVersionHeader, got)
+		}
+		if got := req.Header.Get("User-Agent"); got != "custom-agent/9.9.9" {
+			t.Fatalf("User-Agent = %q, want custom-agent/9.9.9", got)
 		}
 		if got := req.Header.Get("x-grok-client-identifier"); got != "custom-client-identifier" {
 			t.Fatalf("x-grok-client-identifier = %q, want custom-client-identifier", got)
@@ -6621,7 +6649,7 @@ func TestXAIExecutorPreparesCodexMultiAgentV2Request(t *testing.T) {
 	}
 	var agentMessage gjson.Result
 	for _, item := range gjson.GetBytes(gotBody, "input").Array() {
-		if item.Get("type").String() == "message" && item.Get("recipient").String() == "root" {
+		if item.Get("type").String() == "message" && item.Get("content.0.text").String() == "child task text" {
 			agentMessage = item
 			break
 		}
@@ -6629,11 +6657,28 @@ func TestXAIExecutorPreparesCodexMultiAgentV2Request(t *testing.T) {
 	if !agentMessage.Exists() {
 		t.Fatalf("agent_message must be converted into a portable message item; body=%s", string(gotBody))
 	}
+	if got := agentMessage.Get("role").String(); got != "user" {
+		t.Fatalf("agent_message role = %q, want user; body=%s", got, string(gotBody))
+	}
+	for _, key := range []string{"author", "recipient", "id", "internal_chat_message_metadata_passthrough"} {
+		if agentMessage.Get(key).Exists() {
+			t.Fatalf("agent_message must not retain private top-level field %q; body=%s", key, string(gotBody))
+		}
+	}
 	if got := agentMessage.Get("content.0.type").String(); got != "input_text" {
 		t.Fatalf("agent_message content.0.type = %q, want input_text; body=%s", got, string(gotBody))
 	}
 	if got := agentMessage.Get("content.0.text").String(); got != "child task text" {
 		t.Fatalf("agent_message content.0.text = %q, want the decrypted task text; body=%s", got, string(gotBody))
+	}
+	if got := agentMessage.Get("content.#").Int(); got != 2 {
+		t.Fatalf("agent_message must preserve task text and append one metadata block; content count=%d; body=%s", got, string(gotBody))
+	}
+	if got := agentMessage.Get("content.1.type").String(); got != "input_text" {
+		t.Fatalf("agent_message metadata type = %q, want input_text; body=%s", got, string(gotBody))
+	}
+	if got := agentMessage.Get("content.1.text").String(); got != `Agent routing metadata: {"author":{"role":"user"},"recipient":"root"}` {
+		t.Fatalf("agent_message must preserve author and recipient in portable text; metadata=%q; body=%s", got, string(gotBody))
 	}
 	if got := gjson.GetBytes(gotBody, `input.#(type=="web_search_call").action.queries.0`).String(); got != "codex compatibility" {
 		t.Fatalf("web_search_call queries[0] = %q, want the original query; body=%s", got, string(gotBody))

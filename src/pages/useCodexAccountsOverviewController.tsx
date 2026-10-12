@@ -13,6 +13,7 @@ import { useCodexImageForwardConfig } from "../components/CodexImageForwardConfi
 import { useEscClose } from "../hooks/useEscClose";
 import { useEnterConfirm } from "../hooks/useEnterConfirm";
 import type { CodexAccount } from "../types/codex";
+import { CODEX_LOCAL_ACCESS_STATUS_KEYS, resolveCodexLocalAccessRuntimeStatus } from "../utils/codexLocalAccessStatus";
 import { CODEX_API_SERVICE_BIND_ID } from "../types/instance";
 import { createCodexOverviewAccountComparator, filterAndSortCodexOverviewAccounts } from "../utils/codexAccountOverview";
 import { buildPaginatedGroups, buildPaginationPageSizeStorageKey, isEveryIdSelected, usePagination } from "../hooks/usePagination";
@@ -715,7 +716,7 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         },
         {
           id: "cli",
-          label: t("codex.cli.quickLaunch", "CLI 快速启动"),
+          label: t("common.cliQuickLaunch", "CLI 快速启动"),
           description: `${accountName} · ${t("instances.defaultName", "默认实例")}`,
           actionLabel: t("common.open", "打开"),
           disabled: cliLaunchingAccountId === account.id,
@@ -807,7 +808,11 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
       imageModelControl: (
         <CodexImageModelSelect
           model={localAccessCollection?.imageGenerationModel}
+          mainModel={localAccessCollection?.imageGenerationMainModel}
           disabled={localAccessRefreshing}
+          onSaveMainModel={async (model) => {
+            setLocalAccessState(await codexLocalAccessService.updateCodexLocalAccessImageGenerationMainModel(model));
+          }}
           onSave={async (model) => {
             const nextState =
               await codexLocalAccessService.updateCodexLocalAccessImageGenerationModel(
@@ -823,11 +828,8 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
       useCallback((): CodexLaunchPreviewSummary => {
         const collection = localAccessCollection;
         const totals = localAccessState?.stats.weekly.totals;
-        const statusLabel = localAccessState?.running
-          ? t("codex.localAccess.statusRunning", "运行中")
-          : collection?.enabled
-            ? t("codex.localAccess.statusStopped", "未运行")
-            : t("codex.localAccess.statusDisabled", "已停用");
+        const status = resolveCodexLocalAccessRuntimeStatus(collection, localAccessState);
+        const statusLabel = t(CODEX_LOCAL_ACCESS_STATUS_KEYS[status]);
         const scopeLabel =
           collection?.accessScope === "lan"
             ? t("codex.localAccess.accessScopeLanShort", "本机+局域网")
@@ -861,9 +863,9 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
             },
           )}`,
           statusLabel,
-          statusTone: localAccessState?.running
+          statusTone: status === "running"
             ? "success"
-            : collection?.enabled
+            : status === "stopped"
               ? "neutral"
               : "warning",
           facts: [
@@ -977,7 +979,7 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
           },
           {
             id: "cli",
-            label: t("codex.cli.quickLaunch", "CLI 快速启动"),
+            label: t("common.cliQuickLaunch", "CLI 快速启动"),
             description: `${t("codex.localAccess.title", "API 服务")} · ${baseUrl}`,
             actionLabel: t("common.open", "打开"),
             disabled: cliLaunchingAccountId === CODEX_API_SERVICE_BIND_ID,
@@ -1021,9 +1023,9 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
             label: localAccessCollection.enabled
               ? t("codex.localAccess.disableService", "停用服务")
               : t("codex.localAccess.enableService", "启用服务"),
-            description: localAccessState?.running
-              ? t("codex.localAccess.statusRunning", "运行中")
-              : t("codex.localAccess.statusStopped", "未运行"),
+            description: t(CODEX_LOCAL_ACCESS_STATUS_KEYS[
+              resolveCodexLocalAccessRuntimeStatus(localAccessCollection, localAccessState)
+            ]),
             actionLabel: localAccessCollection.enabled
               ? t("codex.localAccess.disableService", "停用服务")
               : t("codex.localAccess.enableService", "启用服务"),
@@ -1174,19 +1176,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         filteredAccounts.filter(isAbnormalAccount).map((account) => account.id),
       [filteredAccounts, isAbnormalAccount],
     );
-    // Full overview set of auth-failed accounts for export (#992), not limited to current page filter.
-    const authFailedExportAccountIds = useMemo(
-      () =>
-        overviewAccounts.filter(isAbnormalAccount).map((account) => account.id),
-      [isAbnormalAccount, overviewAccounts],
-    );
-    const handleExportAuthFailedAccounts = useCallback(() => {
-      if (authFailedExportAccountIds.length === 0) return;
-      void handleExportByIds(
-        authFailedExportAccountIds,
-        `codex_auth_failed_${authFailedExportAccountIds.length}`,
-      );
-    }, [authFailedExportAccountIds, handleExportByIds]);
     const hasDetectableFullQuotaWakeupAccounts = useMemo(
       () =>
         filteredAccounts.some(
@@ -1423,7 +1412,7 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         setDeleteConfirm(null);
         // 用成功提示覆盖页顶旧错误，避免删除后红色报错仍挂着（#1160）
         setMessage({
-          text: t("codex.batchDelete.started", {
+          text: t("common.recycleBin.moveStarted", {
             count: deleteConfirm.ids.length,
           }),
           tone: "success",
@@ -1432,7 +1421,7 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         batchDeleteRemoveIdsRef.current = new Set();
         setBatchDeleteModalError(
           t("messages.actionFailed", {
-            action: t("common.delete"),
+            action: t("common.recycleBin.move"),
             error: String(error),
           }),
         );
@@ -1750,7 +1739,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
     };
   return {
     applyWindowStatsToQuotaItems,
-    authFailedExportAccountIds,
     buildAccountLaunchPreviewActions,
     buildAccountLaunchPreviewSummary,
     buildLocalAccessLaunchPreviewActions,
@@ -1768,7 +1756,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
     handleCodexBatchDelete,
     handleCustomSortDragMove,
     handleCustomSortDragStart,
-    handleExportAuthFailedAccounts,
     handlePauseBatchDelete,
     handleRefreshGroup,
     handleResumeBatchDelete,

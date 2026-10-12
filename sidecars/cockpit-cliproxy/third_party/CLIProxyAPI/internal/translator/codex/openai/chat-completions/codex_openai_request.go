@@ -69,6 +69,9 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 	} else {
 		out, _ = sjson.SetBytes(out, "reasoning.effort", "medium")
 	}
+	if tier := normalizeCodexServiceTier(root.Get("service_tier")); tier != "" {
+		out, _ = sjson.SetBytes(out, "service_tier", tier)
+	}
 	out, _ = sjson.SetBytes(out, "parallel_tool_calls", true)
 	// OpenAI documents reasoning summaries as explicit opt-in output. Leave
 	// reasoning.summary to the source request's canonical summary intent instead
@@ -122,6 +125,7 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 
 	// Extract system instructions from first system message (string or text object)
 	messages := gjson.GetBytes(rawJSON, "messages")
+	shortCallIDs, usedCallIDs := buildCodexCallIDMap(messages)
 	type pendingToolCall struct {
 		callID       string
 		sourceCallID string
@@ -169,7 +173,7 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 					if pendingCall.consumed {
 						continue
 					}
-					if toolCallID == "" || pendingCall.sourceCallID == toolCallID || pendingCall.callID == toolCallID {
+					if toolCallID == "" || pendingCall.sourceCallID == toolCallID || pendingCall.sourceCallID == "" && pendingCall.callID == toolCallID {
 						pendingIndex = index
 						break
 					}
@@ -291,7 +295,6 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 					if toolCalls.Exists() && toolCalls.IsArray() {
 						toolCallsArr := toolCalls.Array()
 						callIDCounts := map[string]int{}
-						usedCallIDs := map[string]struct{}{}
 						for _, tc := range toolCallsArr {
 							_, _, _, valid := resolveToolCall(tc)
 							callID := tc.Get("id").String()
@@ -327,6 +330,9 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 									callID = baseCallID + "_" + strconv.Itoa(suffix)
 								}
 								usedCallIDs[callID] = struct{}{}
+							}
+							if shortID, exists := shortCallIDs[callID]; exists {
+								callID = shortID
 							}
 							pendingToolCalls = append(pendingToolCalls, pendingToolCall{
 								callID:       callID,
@@ -514,6 +520,20 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 
 	out, _ = sjson.SetBytes(out, "store", false)
 	return out
+}
+
+func normalizeCodexServiceTier(value gjson.Result) string {
+	if !value.Exists() || value.Type != gjson.String {
+		return ""
+	}
+	switch tier := strings.ToLower(strings.TrimSpace(value.String())); tier {
+	case "fast", "priority":
+		return "priority"
+	case "ultrafast":
+		return tier
+	default:
+		return ""
+	}
 }
 
 func setToolCallOutputContent(funcOutput []byte, content gjson.Result) []byte {

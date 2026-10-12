@@ -119,9 +119,38 @@ fn save_collection_to_disk(collection: &CodexLocalAccessCollection) -> Result<()
     let mut collection = collection.clone();
     enforce_fixed_local_access_endpoint(&mut collection);
     let path = local_access_file_path()?;
-    let content = serde_json::to_string_pretty(&collection)
-        .map_err(|e| format!("序列化本地接入配置失败: {}", e))?;
-    write_string_atomic(&path, &content)
+    save_collection_to_path(&path, &collection)
+}
+
+fn save_collection_to_path(path: &Path, collection: &CodexLocalAccessCollection) -> Result<(), String> {
+    update_string_atomic(path, |current| {
+        let mut next = collection.clone();
+        if let Some(current) = current {
+            // Background statistics and unrelated settings may hold an older snapshot.
+            // Explicit body-recording choices must survive every full collection write.
+            match serde_json::from_str::<Value>(current) {
+                Ok(current) => {
+                    next.request_payload_logging = current.get("requestPayloadLogging")
+                        .and_then(Value::as_bool)
+                        .unwrap_or_else(|| REQUEST_PAYLOAD_LOGGING_ENABLED.load(Ordering::SeqCst));
+                    if let Some(updated_at) = current.get("updatedAt").and_then(Value::as_i64) {
+                        next.updated_at = next.updated_at.max(updated_at);
+                    }
+                }
+                Err(error) => {
+                    // Keep the existing recovery path for damaged files. With no readable
+                    // choice, use the last published setting (off before initial loading).
+                    next.request_payload_logging = REQUEST_PAYLOAD_LOGGING_ENABLED.load(Ordering::SeqCst);
+                    logger::log_codex_api_warn(&format!(
+                        "本地接入配置损坏，保存可用配置并保留运行态正文记录设置: line={}, column={}",
+                        error.line(), error.column()
+                    ));
+                }
+            }
+        }
+        serde_json::to_string_pretty(&next)
+            .map_err(|error| format!("序列化本地接入配置失败: {error}"))
+    })
 }
 
 fn normalize_stats_metadata(stats: &mut CodexLocalAccessStats) {
@@ -597,6 +626,9 @@ fn prune_runtime_routing_state(runtime: &mut GatewayRuntime, now: i64) {
     runtime
         .model_cooldowns
         .retain(|_, cooldown| cooldown.next_retry_at_ms > now);
+    runtime
+        .recovery_suppressed_accounts
+        .retain(|_, suppressed_until_ms| *suppressed_until_ms > now);
 
     if runtime.response_affinity.len() <= MAX_RESPONSE_AFFINITY_BINDINGS {
         return;
@@ -1538,6 +1570,11 @@ fn sanitize_collection_structure(
         collection.image_generation_mode = CodexLocalAccessImageGenerationMode::Enabled;
         changed = true;
     }
+    let normalized_main_model = normalize_image_generation_main_model(collection.image_generation_main_model.clone()).unwrap_or(None);
+    if normalized_main_model != collection.image_generation_main_model {
+        collection.image_generation_main_model = normalized_main_model;
+        changed = true;
+    }
     let normalized_image_generation_model = collection.image_generation_model.trim().to_string();
     if normalized_image_generation_model.is_empty()
         || normalized_image_generation_model.chars().count() > 200
@@ -1617,13 +1654,20 @@ fn sanitize_collection_structure(
     if normalized_model_pricings != original_model_pricings {
         changed = true;
     }
-    collection.model_pricings =
-        drop_superseded_default_56_model_pricings(normalized_model_pricings);
+    collection.model_pricings = if collection.model_pricing_version < DEFAULT_MODEL_PRICING_VERSION {
+        drop_superseded_default_56_model_pricings(normalized_model_pricings)
+    } else {
+        normalized_model_pricings
+    };
     if collection.model_pricings != original_model_pricings {
         changed = true;
     }
     if collection.model_pricing_version < DEFAULT_MODEL_PRICING_VERSION {
-        collection.model_pricings = Vec::new();
+        // Versions before 3 require a full reseed; subsequent price updates
+        // discard only recognized old defaults above and preserve user rates.
+        if collection.model_pricing_version < 3 {
+            collection.model_pricings = Vec::new();
+        }
         collection.model_pricing_version = DEFAULT_MODEL_PRICING_VERSION;
         changed = true;
     }
@@ -1654,6 +1698,12 @@ fn sanitize_collection_structure(
         .clamp(MAX_RETRY_INTERVAL_MIN_MS, MAX_RETRY_INTERVAL_MAX_MS);
     if normalized_max_retry_interval_ms != collection.max_retry_interval_ms {
         collection.max_retry_interval_ms = normalized_max_retry_interval_ms;
+        changed = true;
+    }
+    if !collection.account_concurrency_default_migrated {
+        // A saved zero is an explicit unlimited limit, not a missing default.
+        // Missing fields already receive the new default during deserialization.
+        collection.account_concurrency_default_migrated = true;
         changed = true;
     }
     let normalized_max_account_concurrency = collection
@@ -1706,8 +1756,22 @@ fn sanitize_collection_with_accounts(
         .map(|account| account.id.clone())
         .collect();
 
+    let known_account_ids: HashSet<&str> = accounts.iter().map(|account| account.id.as_str()).collect();
+    // Account enumeration can be partial during credential rewrites or storage failures.
+    // Only a known ineligible account or an explicit deletion revokes membership.
+    let explicitly_deleted_ids: HashSet<String> = effective_sidecar_account_ids(collection)
+        .into_iter()
+        .chain(collection.bound_oauth_account_id.iter().cloned())
+        .filter(|id| matches!(codex_account::account_storage_status(id),
+            Ok(codex_account::CodexAccountStorageStatus::Deleted)))
+        .collect();
+    let keep_reference = |id: &str, valid_ids: &HashSet<String>| {
+        !explicitly_deleted_ids.contains(id)
+            && (!known_account_ids.contains(id) || valid_ids.contains(id))
+    };
+
     if let Some(bound_id) = collection.bound_oauth_account_id.as_deref() {
-        if !valid_bound_oauth_account_ids.contains(bound_id) {
+        if !keep_reference(bound_id, &valid_bound_oauth_account_ids) {
             collection.bound_oauth_account_id = None;
             changed = true;
             changed |= normalize_bound_oauth_quota_reserve(
@@ -1720,7 +1784,7 @@ fn sanitize_collection_with_accounts(
     let mut deduped = Vec::new();
     let mut seen = HashSet::new();
     for account_id in &collection.account_ids {
-        if !valid_account_ids.contains(account_id) {
+        if !keep_reference(account_id, &valid_account_ids) {
             changed = true;
             continue;
         }
@@ -1737,10 +1801,10 @@ fn sanitize_collection_with_accounts(
 
     // 成员移除后同步清理策略，避免旧账号策略影响后续重新加入的账号。
     let before_image_policies = collection.image_generation_account_policies.clone();
-    let known_account_ids: HashSet<&str> = collection.account_ids.iter().map(String::as_str).collect();
+    let pool_account_ids: HashSet<&str> = collection.account_ids.iter().map(String::as_str).collect();
     collection
         .image_generation_account_policies
-        .retain(|account_id, _| known_account_ids.contains(account_id.as_str()));
+        .retain(|account_id, _| pool_account_ids.contains(account_id.as_str()));
     if collection.image_generation_account_policies != before_image_policies {
         changed = true;
     }
@@ -1749,7 +1813,7 @@ fn sanitize_collection_with_accounts(
     let before_image_accounts = collection.image_generation_account_ids.clone();
     let mut deduped_image_accounts: Vec<String> = Vec::new();
     for account_id in &collection.image_generation_account_ids {
-        if !valid_bound_oauth_account_ids.contains(account_id) {
+        if !keep_reference(account_id, &valid_bound_oauth_account_ids) {
             changed = true;
             continue;
         }
@@ -1764,6 +1828,8 @@ fn sanitize_collection_with_accounts(
         changed = true;
     }
 
+    // A missing/unreadable account is not an explicit deletion. Keep its declared
+    // key scope; routing still checks actual credentials and explicit removals clean references.
     for api_key in &mut collection.api_keys {
         let before = api_key.account_ids.clone();
         let valid_scope_account_ids = if api_key.provider_gateway.is_some() {
@@ -1771,9 +1837,9 @@ fn sanitize_collection_with_accounts(
         } else {
             &valid_account_ids
         };
-        api_key
-            .account_ids
-            .retain(|account_id| valid_scope_account_ids.contains(account_id));
+        api_key.account_ids.retain(|account_id| {
+            keep_reference(account_id, valid_scope_account_ids)
+        });
         if api_key.account_ids != before {
             changed = true;
         }
@@ -1849,6 +1915,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
                 image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
                 image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
+                image_generation_main_model: None,
                 image_generation_account_policies: HashMap::new(),
                 image_generation_account_ids: Vec::new(),
                 gateway_mode: CodexLocalAccessGatewayMode::default(),
@@ -1873,9 +1940,11 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 disable_cooling: false,
                 restrict_free_accounts: true,
                 debug_logs: true,
+        request_payload_logging: false,
                 immediate_sse_response: false,
                 max_concurrent_image_requests: 1,
-                max_account_concurrency: 0,
+                max_account_concurrency: DEFAULT_MAX_ACCOUNT_CONCURRENCY,
+                account_concurrency_default_migrated: true,
                 account_concurrency_wait_ms: DEFAULT_ACCOUNT_CONCURRENCY_WAIT_MS,
                 bound_oauth_account_id: None,
                 bound_oauth_quota_reserve: None,
@@ -2045,7 +2114,8 @@ async fn ensure_runtime_loaded_for_app_startup() -> Result<(), String> {
             runtime.collection.clone()
         };
         if let Some(collection) = collection.as_ref() {
-            if local_access_profile_takeovers_need_sync(collection) {
+            if crate::modules::config::get_user_config().codex_auto_restore_takeover_on_launch
+                && local_access_profile_takeovers_need_sync(collection) {
                 ensure_local_access_profile_takeovers_from_runtime().await?;
             }
         }
@@ -2059,10 +2129,12 @@ async fn ensure_runtime_loaded_for_app_startup() -> Result<(), String> {
 }
 
 async fn ensure_gateway_matches_runtime() -> Result<(), String> {
-    let result = {
+    let (result, generation) = {
         let _lifecycle_guard = gateway_lifecycle_lock().lock().await;
-        ensure_gateway_matches_runtime_locked().await
+        let generation = current_gateway_lifecycle_generation();
+        (ensure_gateway_matches_runtime_locked().await, generation)
     };
+    let result = defer_gateway_key_preparation_error(result, generation).await;
     if result.is_ok() && GATEWAY_STOP_REQUESTS.load(Ordering::SeqCst) == 0 {
         let collection = {
             let runtime = gateway_runtime().lock().await;
@@ -2086,7 +2158,7 @@ where
         match reload.await {
             Ok(()) => {
                 let mut runtime = gateway_runtime().lock().await;
-                runtime.last_error = None;
+                if !gateway_key_recovery_snapshot().0 { runtime.last_error = None; }
                 logger::log_codex_api_info(&format!(
                     "[CodexLocalAccess] 后台网关重载完成: {}",
                     reason

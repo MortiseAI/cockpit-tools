@@ -2643,9 +2643,9 @@
 }
 
 .codex-local-access-member-mainline
-  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max),
+  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max):not(.codex-pro-500),
 .codex-local-access-account-stat-main
-  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max) {
+  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max):not(.codex-pro-500) {
   background: var(--plan-pro-bg);
   color: var(--plan-pro-color);
   border: 1px solid var(--plan-pro-border);
@@ -3378,4 +3378,19 @@
 /* 跨平台成员：Grok 平台账号行与 Codex 行共用同一列表，仅错误提示单独着色。 */
 .codex-local-access-grok-member-error {
   color: var(--danger, #dc2626);
+}
+
+/* Keep action failures visible while the settings body scrolls. */
+.codex-local-access-error-area {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: min(25vh, 160px);
+  margin: 0 20px 12px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.codex-local-access-error-area .codex-local-access-inline-error {
+  margin-bottom: 0;
 }

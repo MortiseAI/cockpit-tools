@@ -91,6 +91,7 @@
 
     #[tokio::test]
     async fn prepare_sidecar_config_prunes_stale_auth_files_incrementally() {
+        let _shared_state = crate::modules::codex_unified_proxy::TestCacheGuard::new();
         let dir = make_temp_dir("codex-sidecar-incremental-auth-files");
         let account = CodexAccount::new(
             "oauth-incremental".to_string(),
@@ -121,7 +122,15 @@
         let auth_path = auths_dir.join(sidecar_auth_file_name(&account.id));
         let initial_auth_content = fs::read_to_string(&auth_path).expect("read auth file");
         let stale_path = auths_dir.join("stale.json");
+        let stale_backup_path = auths_dir.join("stale.json.bak");
+        let retained_backup_path = auths_dir.join(format!(
+            "{}.bak",
+            sidecar_auth_file_name(&account.id)
+        ));
         fs::write(&stale_path, "{}").expect("write stale auth file");
+        fs::write(&stale_backup_path, "stale secret backup").expect("write stale backup");
+        fs::write(&retained_backup_path, "retained secret backup")
+            .expect("write retained backup");
 
         prepare_sidecar_launch_config_in_dir(
             &collection,
@@ -134,6 +143,11 @@
         .expect("second sidecar config should build");
 
         assert!(!stale_path.exists(), "stale auth file should be removed");
+        assert!(!stale_backup_path.exists(), "stale auth backup should be removed");
+        assert!(
+            !retained_backup_path.exists(),
+            "retained auth backup should be removed without replacing retained auth"
+        );
         assert_eq!(
             fs::read_to_string(&auth_path).expect("read retained auth file"),
             initial_auth_content
@@ -1167,8 +1181,36 @@
         let sol =
             resolve_effective_model_pricing(None, Some("gpt-5.6-sol"), Some(&short_usage), None)
                 .expect("gpt-5.6-sol pricing");
-        assert_eq!(sol.input_usd_per_million, 5.0);
-        assert_eq!(sol.output_usd_per_million, 30.0);
+        assert_eq!(sol.input_usd_per_million, 4.0);
+        assert_eq!(sol.cached_input_usd_per_million, Some(0.4));
+        assert_eq!(sol.output_usd_per_million, 20.0);
+        for model in ["gpt-5.6", "gpt-5.6-sol"] {
+            let long = resolve_effective_model_pricing(None, Some(model), Some(&long_usage), None)
+                .expect("gpt-5.6 long-context pricing");
+            assert_eq!(long.input_usd_per_million, 8.0);
+            assert_eq!(long.cached_input_usd_per_million, Some(0.8));
+            assert_eq!(long.output_usd_per_million, 30.0);
+            let fast = resolve_effective_model_pricing(
+                None,
+                Some(model),
+                Some(&short_usage),
+                Some("priority"),
+            )
+            .expect("gpt-5.6 fast pricing");
+            assert_eq!(fast.input_usd_per_million, 8.0);
+            assert_eq!(fast.cached_input_usd_per_million, Some(0.8));
+            assert_eq!(fast.output_usd_per_million, 40.0);
+            let fast_long = resolve_effective_model_pricing(
+                None,
+                Some(model),
+                Some(&long_usage),
+                Some("priority"),
+            )
+            .expect("gpt-5.6 fast long-context pricing");
+            assert_eq!(fast_long.input_usd_per_million, 16.0);
+            assert_eq!(fast_long.cached_input_usd_per_million, Some(1.6));
+            assert_eq!(fast_long.output_usd_per_million, 60.0);
+        }
         let terra =
             resolve_effective_model_pricing(None, Some("gpt-5.6-terra"), Some(&short_usage), None)
                 .expect("gpt-5.6-terra pricing");
@@ -1256,6 +1298,22 @@
     fn drops_legacy_default_56_overrides_but_keeps_custom_rates() {
         let kept = super::drop_superseded_default_56_model_pricings(vec![
             model_pricing(
+                "gpt-5.6-sol",
+                Some(272_000),
+                codex_price(5.0, 0.5, 30.0),
+                None,
+                Some(codex_price(10.0, 1.0, 60.0)),
+                None,
+            ),
+            model_pricing(
+                "gpt-5.6",
+                Some(272_000),
+                codex_price(5.0, 0.5, 30.0),
+                None,
+                Some(codex_price(10.0, 1.0, 60.0)),
+                None,
+            ),
+            model_pricing(
                 "gpt-5.6-terra",
                 Some(272_000),
                 codex_price(2.5, 0.25, 15.0),
@@ -1293,6 +1351,45 @@
         assert_eq!(kept[0].input_usd_per_million, 9.9);
         assert_eq!(kept[1].model_id, "gpt-5.5");
 
+        let mut upgraded = test_local_access_collection(vec!["account-a".to_string()]);
+        upgraded.model_pricing_version = 3;
+        upgraded.model_pricings = vec![
+            model_pricing(
+                "gpt-5.6-sol",
+                Some(272_000),
+                codex_price(5.0, 0.5, 30.0),
+                None,
+                Some(codex_price(10.0, 1.0, 60.0)),
+                None,
+            ),
+            model_pricing(
+                "gpt-5.6-luna",
+                Some(272_000),
+                codex_price(9.9, 0.9, 19.0),
+                None,
+                None,
+                None,
+            ),
+        ];
+        super::sanitize_collection_structure(&mut upgraded).expect("upgrade pricing book");
+        assert_eq!(upgraded.model_pricing_version, DEFAULT_MODEL_PRICING_VERSION);
+        assert_eq!(upgraded.model_pricings.len(), 1);
+        assert_eq!(upgraded.model_pricings[0].model_id, "gpt-5.6-luna");
+        assert_eq!(upgraded.model_pricings[0].input_usd_per_million, 9.9);
+
+        let mut custom_after_upgrade = test_local_access_collection(Vec::new());
+        custom_after_upgrade.model_pricings = vec![model_pricing(
+            "gpt-5.6-sol",
+            Some(272_000),
+            codex_price(5.0, 0.5, 30.0),
+            None,
+            Some(codex_price(10.0, 1.0, 60.0)),
+            None,
+        )];
+        super::sanitize_collection_structure(&mut custom_after_upgrade)
+            .expect("keep prices customized after upgrade");
+        assert_eq!(custom_after_upgrade.model_pricings.len(), 1);
+
         let mut collection = test_local_access_collection(vec!["account-a".to_string()]);
         collection.model_pricings = vec![model_pricing(
             "gpt-5.6-luna",
@@ -1321,6 +1418,29 @@
         .expect("legacy snapshot should fall back to new book");
         assert_eq!(luna.input_usd_per_million, 0.2);
         assert_eq!(luna.output_usd_per_million, 1.2);
+    }
+
+    #[test]
+    fn cache_write_cost_uses_official_multiplier_for_gpt_56_and_6() {
+        let mut breakdown = CodexTokenBreakdown::default();
+        breakdown.schema_version = 2;
+        breakdown.quality = "complete".to_string();
+        breakdown.total_tokens = 100_000;
+        breakdown.input.total_tokens = 100_000;
+        breakdown.input.cache_write_tokens = 100_000;
+        let usage = UsageCapture {
+            input_tokens: 100_000,
+            output_tokens: 0,
+            total_tokens: 100_000,
+            cached_tokens: 0,
+            reasoning_tokens: 0,
+            token_breakdown: Some(breakdown),
+        };
+        for (model, expected) in [("gpt-5.6-sol", 0.5), ("gpt-6-sol", 0.25)] {
+            let pricing = resolve_effective_model_pricing(None, Some(model), Some(&usage), None)
+                .expect("official pricing");
+            assert_eq!(calculate_usage_cost_usd(Some(&usage), Some(&pricing)), expected);
+        }
     }
 
     #[test]
@@ -2430,4 +2550,101 @@ supports_websockets = false
             let expected = (50_000.0 * input + 50_000.0 * cache + 100_000.0 * input * 1.25) / 1_000_000.0;
             assert!((calculate_usage_cost_usd(Some(&usage), Some(&price)) - expected).abs() < 1e-12);
         }
+    }
+    fn gpt_6_1_sol_does_not_inherit_legacy_model_prices() {
+        use super::{normalize_known_openai_codex_model, price_book_entry_for_model};
+        assert_eq!(
+            normalize_known_openai_codex_model("codex/gpt-6.1-sol-2026-09-30").as_deref(),
+            Some("gpt-6.1-sol")
+        );
+        let pricing = price_book_entry_for_model("gpt-6.1-sol").expect("official price");
+        assert_eq!(pricing.model_id, "gpt-6.1-sol");
+        assert_eq!(pricing.standard.input_usd_per_million, 2.0);
+        assert_eq!(pricing.standard.cached_input_usd_per_million, 0.1);
+        assert_eq!(pricing.standard.output_usd_per_million, 10.0);
+        assert_eq!(
+            price_book_entry_for_model("codex/gpt-6.1-sol")
+                .unwrap()
+                .model_id,
+            "gpt-6.1-sol"
+        );
+    }
+
+    #[test]
+    fn gpt_61_costs_cover_cache_writes_tiers_and_long_context() {
+        for (input_part, tier, expected) in [
+            (50_000, None, 1.23),
+            (50_000, Some("fast"), 2.46),
+            (50_000, Some("flex"), 0.615),
+            (100_000, None, 2.42),
+            (100_000, Some("priority"), 4.84),
+            (100_000, Some("flex"), 1.21),
+        ] {
+            let mut breakdown = CodexTokenBreakdown::default();
+            breakdown.schema_version = 2;
+            breakdown.quality = "complete".into();
+            breakdown.input.uncached_tokens = input_part;
+            breakdown.input.cache_read_tokens = input_part;
+            breakdown.input.cache_write_tokens = input_part;
+            breakdown.input.total_tokens = input_part * 3;
+            breakdown.output.non_reasoning_tokens = 100_000;
+            breakdown.output.total_tokens = 100_000;
+            breakdown.total_tokens = input_part * 3 + 100_000;
+            let usage = UsageCapture {
+                input_tokens: input_part * 3,
+                output_tokens: 100_000,
+                total_tokens: breakdown.total_tokens,
+                cached_tokens: input_part,
+                token_breakdown: Some(breakdown),
+                ..Default::default()
+            };
+            let pricing =
+                resolve_effective_model_pricing(None, Some("gpt-6.1-sol"), Some(&usage), tier).unwrap();
+            let cost = calculate_usage_cost_usd(Some(&usage), Some(&pricing));
+            assert!(
+                (cost - expected).abs() < 1e-10,
+                "{input_part:?}/{tier:?}: {cost} != {expected}"
+            );
+        }
+        for (tokens, expected_input) in [(272_000, 2.0), (272_001, 4.0)] {
+            let usage = UsageCapture {
+                input_tokens: tokens,
+                ..Default::default()
+            };
+            let pricing =
+                resolve_effective_model_pricing(None, Some("gpt-6.1-sol"), Some(&usage), None).unwrap();
+            assert_eq!(pricing.input_usd_per_million, expected_input);
+        }
+    }
+
+    #[test]
+    fn retired_prices_are_history_only_and_upgrade_preserves_custom_rates() {
+        use super::{
+            default_model_pricing_presets, price_book_entry_to_model_pricing,
+            HISTORICAL_CODEX_MODEL_PRICE_BOOK,
+        };
+        assert!(default_model_pricing_presets()
+            .iter()
+            .all(|price| !crate::modules::codex_wakeup::is_codex_model_before_5_5(&price.model_id)));
+        let legacy = price_book_entry_to_model_pricing(
+            HISTORICAL_CODEX_MODEL_PRICE_BOOK
+                .iter()
+                .find(|entry| entry.model_id == "gpt-5.4")
+                .unwrap(),
+        );
+        let mut collection = test_local_access_collection(vec![]);
+        collection.model_pricing_version = 4;
+        let mut customized = legacy.clone();
+        customized.model_id = "gpt-5.4-mini".into();
+        customized.input_usd_per_million = 99.0;
+        collection.model_pricings = vec![legacy, customized.clone()];
+        super::sanitize_collection_structure(&mut collection).unwrap();
+        assert_eq!(
+            collection.model_pricing_version,
+            DEFAULT_MODEL_PRICING_VERSION
+        );
+        assert_eq!(collection.model_pricings.len(), 1);
+        assert_eq!(collection.model_pricings[0].input_usd_per_million, 99.0);
+        assert_eq!(collection.model_pricings[0].model_id, customized.model_id);
+        assert!(!super::sanitize_collection_structure(&mut collection).unwrap());
     }

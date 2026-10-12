@@ -55,6 +55,7 @@ export interface CodexLocalAccessModelPricing {
   outputUsdPerMillion: number;
   cachedInputUsdPerMillion?: number | null;
   standardLongInputUsdPerMillion?: number | null;
+  standardLongPriceOverride?: boolean;
   standardLongOutputUsdPerMillion?: number | null;
   standardLongCachedInputUsdPerMillion?: number | null;
   priorityInputUsdPerMillion?: number | null;
@@ -124,6 +125,7 @@ export interface CodexLocalAccessCollection {
   clientBaseUrlHost: CodexLocalAccessClientBaseUrlHost;
   imageGenerationMode: CodexLocalAccessImageGenerationMode;
   imageGenerationModel: string;
+  imageGenerationMainModel?: string | null;
   imageGenerationAccountPolicies: Record<
     string,
     CodexLocalAccessImageGenerationPolicy
@@ -139,6 +141,8 @@ export interface CodexLocalAccessCollection {
   modelPricingVersion: number;
   modelPricings: CodexLocalAccessModelPricing[];
   debugLogs: boolean;
+  /** Request bodies are recorded locally only when explicitly enabled. */
+  requestPayloadLogging?: boolean;
   immediateSseResponse: boolean;
   maxConcurrentImageRequests: number;
   maxAccountConcurrency: number;
@@ -259,11 +263,18 @@ export interface CodexTokenBreakdown {
   unclassified_tokens: number;
 }
 
+export interface CodexLocalAccessProxyRoute {
+  kind: "node" | "proxy" | "direct" | "unknown";
+  name: string;
+}
+
 export interface CodexLocalAccessUsageEvent {
   timestamp: number;
   requestId: string;
   accountId: string;
   email: string;
+  /** 请求执行时记录的代理快照；旧日志不按当前账号绑定回填。 */
+  proxyRoute?: CodexLocalAccessProxyRoute | null;
   apiKeyId: string;
   apiKeyLabel: string;
   /** 多开实例目录 ID（x-cockpit-instance-id） */
@@ -285,6 +296,10 @@ export interface CodexLocalAccessUsageEvent {
   errorCategory: string;
   errorMessage: string;
   latencyMs: number;
+  /** Time to the first upstream response fragment; absent on older records. */
+  firstResponseMs?: number | null;
+  /** Observed streaming window for this successful upstream attempt; never inferred for older logs. */
+  outputGenerationMs?: number | null;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -317,6 +332,43 @@ export interface CodexLocalAccessUsageEventPage {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+export interface CodexLocalAccessRequestAttempt {
+  sequence: number;
+  accountId: string;
+  accountEmail?: string | null;
+  modelId: string;
+  transport: string;
+  startedAtMs: number;
+  latencyMs: number;
+  status?: number | null;
+  success: boolean;
+  errorCategory?: string | null;
+  errorMessage?: string | null;
+  failurePhase?: string | null;
+}
+
+export interface CodexLocalAccessRequestPayload {
+  stage: string;
+  attemptSequence?: number | null;
+  transport: string;
+  contentType: string;
+  headers?: Record<string, string>;
+  body: string;
+  truncated: boolean;
+  originalBytes: number;
+  sha256: string;
+}
+
+export interface CodexLocalAccessRequestDetail {
+  requestId: string;
+  firstResponseMs?: number | null;
+  failurePhase?: string | null;
+  attempts: CodexLocalAccessRequestAttempt[];
+  payloads: CodexLocalAccessRequestPayload[];
+  capturedAtMs: number;
+  truncated: boolean;
 }
 
 export interface CodexLocalAccessRequestLogQuery {
@@ -361,6 +413,8 @@ export interface CodexLocalAccessAccountHealth {
 }
 
 export interface CodexLocalAccessAccountPoolHealth {
+  /** Absent for diagnostic snapshots from older hosts. */
+  requestId?: string;
   apiKeyId: string;
   apiKeyLabel: string;
   provider: string;
@@ -377,7 +431,15 @@ export interface CodexLocalAccessAccountPoolHealth {
   quotaReservedAuths: number;
   imagePolicyBlockedAuths: number;
   accountStatuses: CodexLocalAccessAccountPoolMemberHealth[];
+  /** 账号范围/候选筛选诊断；不表示账号凭据或健康状态异常。 */
+  scopeDiagnostics?: CodexLocalAccessAccountPoolScopeDiagnostic[];
   lastFailureAt: number;
+}
+
+export interface CodexLocalAccessAccountPoolScopeDiagnostic {
+  accountId: string;
+  accountEmail: string;
+  reasonCode: string;
 }
 
 export interface CodexLocalAccessAccountPoolMemberHealth {
@@ -416,6 +478,9 @@ export interface CodexLocalAccessState {
   preparing: boolean;
   preparationTotal: number;
   preparationCompleted: number;
+  recovering?: boolean;
+  recoveryAttempt?: number;
+  recoveryTotal?: number;
   refreshingAccounts: boolean;
   accountRefreshTotal: number;
   accountRefreshCompleted: number;
@@ -430,6 +495,8 @@ export interface CodexLocalAccessState {
   stats: CodexLocalAccessStats;
   accountHealth: CodexLocalAccessAccountHealth[];
   accountPoolHealth: CodexLocalAccessAccountPoolHealth[];
+  /** 手动恢复后仍在抑制窗口内的账号：异常列表里临时隐藏这些账号的行。 */
+  recoverySuppressedAccountIds?: string[];
   quotaReserveStatus: CodexLocalAccessQuotaReserveStatus | null;
 }
 

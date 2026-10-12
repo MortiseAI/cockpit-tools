@@ -1,3 +1,4 @@
+import { listenSafely as listen } from "./utils/tauriEventListener";
 import {
   Suspense,
   lazy,
@@ -11,7 +12,7 @@ import {
 import './App.css';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +22,7 @@ import { BootReadyMarker, VisibleBootPage } from './components/BootReadyMarker';
 import { GlobalModal } from './components/GlobalModal';
 import { WindowsOperationDialog } from './components/WindowsOperationDialog';
 import { CodexSwitchProgressModal } from './components/CodexSwitchProgressModal';
+import { CodexCliDaemonNotice } from './components/CodexCliDaemonNotice';
 import { CodexInstanceLaunchProgressModal } from './components/CodexInstanceLaunchProgressModal';
 import { CodexPelicanHost } from './components/codex/pelican/CodexPelicanHost';
 import { AnnouncementHost } from './components/AnnouncementCenter';
@@ -48,6 +50,8 @@ import { useWorkbuddyAccountStore } from './stores/useWorkbuddyAccountStore';
 import { useZedAccountStore } from './stores/useZedAccountStore';
 import { useSideNavLayoutStore } from './stores/useSideNavLayoutStore';
 import { usePlatformLayoutStore } from './stores/usePlatformLayoutStore';
+import { initializeClassicSidebar } from './utils/classicSidebarStartup';
+import { getAntigravityRuntimeTarget, resolveAntigravityStartupTarget, setAntigravityRuntimeTarget } from './utils/antigravityRuntimeTarget';
 import { useTopRightAdStore } from './stores/useTopRightAdStore';
 import { useSponsorStore } from './stores/useSponsorStore';
 import { useRemoteConfigStore } from './stores/useRemoteConfigStore';
@@ -59,6 +63,7 @@ import {
   resolveUpdaterDownloadUrl,
 } from './utils/updaterReleaseNotes';
 import { FloatingCardWindow } from './pages/FloatingCardWindow';
+import { CodexWakeupConfirmation } from './components/CodexWakeupConfirmation';
 import { initWakeupNotificationListener } from './utils/wakeupNotificationListener';
 import {
   createUpdaterCanceledError,
@@ -340,6 +345,7 @@ function normalizeStoredActivePage(value: string | null): Page | null {
 
 /** 启动页偏好：`last` 表示恢复上次页面，其它为具体 Page id */
 function normalizeStartupPagePreference(value: string | null | undefined): 'last' | Page {
+  if (resolveAntigravityStartupTarget(value)) return 'overview';
   const normalized = value?.trim().toLowerCase();
   if (!normalized || normalized === 'last') {
     return 'last';
@@ -815,6 +821,8 @@ function MainApp() {
           return;
         }
         const preferred = normalizeStartupPagePreference(config.startup_page);
+        const antigravityTarget = resolveAntigravityStartupTarget(config.startup_page);
+        if (antigravityTarget) setAntigravityRuntimeTarget(antigravityTarget);
         if (preferred !== 'last') {
           setPage(preferred);
         }
@@ -1298,8 +1306,13 @@ function MainApp() {
     if (sideNavLayoutMode !== 'classic' || sideNavClassicFirstSyncDone) {
       return;
     }
-    syncSidebarEntriesFromDashboard();
-    markSideNavClassicFirstSyncDone();
+    let current = true;
+    void initializeClassicSidebar({
+      isCurrent: () => current,
+      initialize: syncSidebarEntriesFromDashboard,
+      markInitialized: markSideNavClassicFirstSyncDone,
+    });
+    return () => { current = false; };
   }, [
     sideNavLayoutMode,
     sideNavClassicFirstSyncDone,
@@ -3181,7 +3194,9 @@ function MainApp() {
       try {
         await Promise.all(
           refreshTasks.map(({ command, errorMessage }) =>
-            invoke(command).catch((error) => {
+            invoke(command, command === 'refresh_current_quota'
+              ? { runtimeTarget: getAntigravityRuntimeTarget() }
+              : undefined).catch((error) => {
               console.error(errorMessage, error);
             }),
           ),
@@ -3747,6 +3762,8 @@ function MainApp() {
       )}
       <GlobalModal />
       <CodexSwitchProgressModal />
+      <CodexCliDaemonNotice />
+      <CodexWakeupConfirmation />
       <CodexInstanceLaunchProgressModal />
       <CodexPelicanHost />
       <WindowsOperationDialog />

@@ -27,18 +27,24 @@ func (s quotaCooldownState) active(now time.Time) bool {
 }
 
 type quotaCooldownStateStore struct {
-	path     string
-	snapshot atomic.Value
-	mu       sync.Mutex
-	lastHash [sha256.Size]byte
-	hasHash  bool
+	path              string
+	snapshot          atomic.Value
+	routingAccountIDs map[string]struct{}
+	mu                sync.Mutex
+	lastHash          [sha256.Size]byte
+	hasHash           bool
 }
 
 func newQuotaCooldownStateStore(path string, m *manifest) *quotaCooldownStateStore {
 	s := &quotaCooldownStateStore{path: strings.TrimSpace(path)}
 	initial := make(map[string]quotaCooldownState)
 	if m != nil {
+		s.routingAccountIDs = make(map[string]struct{}, len(m.Accounts)+len(m.accountByID))
+		for id := range m.accountByID {
+			s.routingAccountIDs[id] = struct{}{}
+		}
 		for _, account := range m.Accounts {
+			s.routingAccountIDs[account.ID] = struct{}{}
 			if account.QuotaCooldown != nil {
 				initial[account.ID] = *account.QuotaCooldown
 			} else if account.RemainingQuota != nil {
@@ -82,6 +88,10 @@ func (s *quotaCooldownStateStore) load() error {
 		for id, current := range previous {
 			if incoming, exists := next[id]; exists && current.UpdatedAtMS > incoming.UpdatedAtMS {
 				next[id] = current
+			} else if !exists {
+				if _, configured := s.routingAccountIDs[id]; configured {
+					next[id] = current
+				}
 			}
 		}
 	}
@@ -93,6 +103,7 @@ func (s *quotaCooldownStateStore) load() error {
 func legacyQuotaCooldownFromPoolState(account quotaPoolAccountState) *quotaCooldownState {
 	windows := []*quotaPoolWindowState{account.Primary, account.Secondary}
 	exhausted := false
+	unknownReset := false
 	var resetAtMS *int64
 	for _, window := range windows {
 		if !quotaWindowPresent(window) || window.RemainingPercent == nil || *window.RemainingPercent != 0 {
@@ -103,7 +114,7 @@ func legacyQuotaCooldownFromPoolState(account quotaPoolAccountState) *quotaCoold
 		}
 		exhausted = true
 		if window.ResetAt == nil || *window.ResetAt <= 0 {
-			resetAtMS = nil
+			unknownReset = true
 		} else if resetAtMS == nil || *resetAtMS < *window.ResetAt*1000 {
 			value := *window.ResetAt * 1000
 			resetAtMS = &value
@@ -111,6 +122,9 @@ func legacyQuotaCooldownFromPoolState(account quotaPoolAccountState) *quotaCoold
 	}
 	if !exhausted {
 		return &quotaCooldownState{}
+	}
+	if unknownReset {
+		resetAtMS = nil
 	}
 	return &quotaCooldownState{Exhausted: true, ResetAtMS: resetAtMS, UpdatedAtMS: 0}
 }
@@ -260,6 +274,104 @@ func (s *quotaCooldownSelector) ReportAuthSelectionFailure(ctx context.Context, 
 		return reporter.ReportAuthSelectionFailure(ctx, provider, model, auths, err)
 	}
 	return err
+}
+
+type authPoolAutoRecoveredContextKey struct{}
+
+func withAuthPoolAutoRecovered(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, authPoolAutoRecoveredContextKey{}, true)
+}
+
+func authPoolAlreadyAutoRecovered(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	recovered, _ := ctx.Value(authPoolAutoRecoveredContextKey{}).(bool)
+	return recovered
+}
+
+func maybeAutoRecoverAuthPool(ctx context.Context, m *manifest, model string, auths []*coreauth.Auth) (context.Context, bool) {
+	if authPoolAlreadyAutoRecovered(ctx) || recoverRuntimeAuths(ctx, m, model, auths) == 0 {
+		return ctx, false
+	}
+	return withAuthPoolAutoRecovered(ctx), true
+}
+
+func recoverRuntimeAuths(ctx context.Context, m *manifest, model string, auths []*coreauth.Auth) int {
+	if m == nil || m.authManager == nil || len(auths) == 0 {
+		return 0
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	requestKind, _ := ctx.Value(requestKindContextKey).(string)
+	recoveredIDs := make([]string, 0, len(auths))
+	seen := make(map[string]struct{}, len(auths))
+	for _, auth := range auths {
+		if !shouldAutoRecoverAuth(m, auth, model, requestKind) {
+			continue
+		}
+		if _, err := m.authManager.ResetAuthState(ctx, auth.ID); err != nil {
+			continue
+		}
+		clearRuntimeAuthAvailability(auth)
+		account := accountForAuthInManifest(m, auth)
+		accountID := strings.TrimSpace(auth.ID)
+		if account != nil && strings.TrimSpace(account.ID) != "" {
+			accountID = strings.TrimSpace(account.ID)
+		}
+		if accountID == "" {
+			continue
+		}
+		if _, exists := seen[accountID]; exists {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		recoveredIDs = append(recoveredIDs, accountID)
+	}
+	if len(recoveredIDs) == 0 {
+		return 0
+	}
+	// Automatic recovery may repair stale runtime errors, but it is not a
+	// quota observation. Never replace the host's confirmed cooldown snapshot.
+	return len(recoveredIDs)
+}
+
+func shouldAutoRecoverAuth(m *manifest, auth *coreauth.Auth, model, requestKind string) bool {
+	if auth == nil || strings.TrimSpace(auth.ID) == "" {
+		return false
+	}
+	if auth.Disabled || auth.Status == coreauth.StatusDisabled {
+		return false
+	}
+	account := accountForAuthInManifest(m, auth)
+	now := time.Now()
+	reserveEligible := isCodexReserveModel(model) && account != nil && account.GPTReserveAllowed
+	if (accountQuotaExhausted(m, account, now) && !reserveEligible) ||
+		runtimeAvailabilityBlocked(auth.Unavailable, auth.Quota.Exceeded, auth.NextRetryAfter, auth.Quota.NextRecoverAt, now) {
+		return false
+	}
+	// ResetAuthState clears every model. A request for one model must not
+	// erase a different model's cooldown or explicit disabled state.
+	for _, state := range auth.ModelStates {
+		if state != nil && (state.Status == coreauth.StatusDisabled ||
+			runtimeAvailabilityBlocked(state.Unavailable, state.Quota.Exceeded, state.NextRetryAfter, state.Quota.NextRecoverAt, now)) {
+			return false
+		}
+	}
+	if authModelExcluded(m, auth, model) {
+		return false
+	}
+	if isImageRequestKind(requestKind) && account != nil && !imageGenerationAllowedForAccount(account) {
+		return false
+	}
+	if quotaReserveBlockReasonWithState(account, nil, now) != "" {
+		return false
+	}
+	return true
 }
 
 func clearRuntimeAuthAvailability(auth *coreauth.Auth) {

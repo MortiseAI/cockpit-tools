@@ -3,6 +3,7 @@
 package registry
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ const (
 	codexBuiltinImage25FlareModelID    = "gpt-image-2.5-flare"
 	codexBuiltinImage25SunburstModelID = "gpt-image-2.5-sunburst"
 	codexBuiltinImageModelID           = "gpt-image-2.5"
+	codexBuiltinGPT61SolModelID        = "gpt-6.1-sol"
 	codexBuiltinGPT6AstraModelID       = "gpt-6-astra"
 	codexBuiltinGPT6SolModelID         = "gpt-6-sol"
 	codexBuiltinGPT6LunaModelID        = "gpt-6-luna"
@@ -135,6 +137,13 @@ func GetXAIModels() []*ModelInfo {
 // not depend on remote models.json updates. Built-ins replace any matching IDs
 // already present in the provided slice.
 func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
+	active := make([]*ModelInfo, 0, len(models))
+	for _, model := range models {
+		if model != nil && !isRetiredCodexModelID(model.ID) {
+			active = append(active, model)
+		}
+	}
+	models = active
 	return upsertModelInfos(models,
 		codexBuiltinImage15ModelInfo(),
 		codexBuiltinImage2ModelInfo(),
@@ -144,21 +153,49 @@ func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
 	)
 }
 
+// Prevent retired built-in models from returning through remote catalog updates.
+func isRetiredCodexModelID(modelID string) bool {
+	name := strings.ToLower(strings.TrimSpace(modelID))
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	version, ok := strings.CutPrefix(name, "gpt-")
+	if !ok {
+		return false
+	}
+	version = strings.SplitN(version, "-", 2)[0]
+	parts := strings.Split(version, ".")
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	minor := 0
+	if len(parts) > 1 {
+		minor, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return false
+		}
+	}
+	return major < 5 || major == 5 && minor < 5
+}
+
 // withCodexPaidBuiltins keeps paid Codex model availability stable when the
 // remote static model catalog is older than the shipped client catalog.
 func withCodexPaidBuiltins(models []*ModelInfo) []*ModelInfo {
 	models = upsertModelInfos(
 		WithCodexBuiltins(models),
+		codexBuiltinGPT61SolModelInfo(),
 		codexBuiltinGPT6AstraModelInfo(),
 		codexBuiltinGPT6SolModelInfo(),
 		codexBuiltinGPT6LunaModelInfo(),
 	)
-	// Promote the shipped GPT-6 family to the front in astra, sol, luna order.
+	// Promote the shipped GPT-6 family to the front in 6.1 sol, astra, sol, luna order.
 	// Applying the single-model helper from the last ID backwards leaves the
 	// relative order of every other model untouched.
 	models = prioritizeModelInfoByID(models, codexBuiltinGPT6LunaModelID)
 	models = prioritizeModelInfoByID(models, codexBuiltinGPT6SolModelID)
-	return prioritizeModelInfoByID(models, codexBuiltinGPT6AstraModelID)
+	models = prioritizeModelInfoByID(models, codexBuiltinGPT6AstraModelID)
+	return prioritizeModelInfoByID(models, codexBuiltinGPT61SolModelID)
 }
 
 // WithXAIBuiltins injects hard-coded xAI image/video model definitions that should
@@ -232,6 +269,19 @@ func codexBuiltinImage25SunburstModelInfo() *ModelInfo {
 		Type:        "openai",
 		DisplayName: "GPT Image 2.5 Sunburst",
 		Version:     codexBuiltinImage25SunburstModelID,
+	}
+}
+
+// Limits and reasoning levels follow the official Codex client catalog.
+// Pricing is maintained by the host; the public output limit is 128K.
+func codexBuiltinGPT61SolModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID: codexBuiltinGPT61SolModelID, Object: "model", OwnedBy: "openai", Type: "openai",
+		DisplayName: "GPT-6.1 Sol", Version: codexBuiltinGPT61SolModelID,
+		Description:   "Latest workhorse model for coding and everyday work.",
+		ContextLength: 272000, MaxCompletionTokens: 128000, SupportedParameters: []string{"tools"},
+		SupportedInputModalities: []string{"text", "image"}, SupportedOutputModalities: []string{"text"},
+		Thinking: &ThinkingSupport{Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
 	}
 }
 
@@ -513,14 +563,12 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 			}
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(modelID), codexBuiltinGPT6AstraModelID) {
-		return cloneModelInfo(codexBuiltinGPT6AstraModelInfo())
-	}
-	if strings.EqualFold(strings.TrimSpace(modelID), codexBuiltinGPT6SolModelID) {
-		return cloneModelInfo(codexBuiltinGPT6SolModelInfo())
-	}
-	if strings.EqualFold(strings.TrimSpace(modelID), codexBuiltinGPT6LunaModelID) {
-		return cloneModelInfo(codexBuiltinGPT6LunaModelInfo())
+	for _, models := range [][]*ModelInfo{withCodexPaidBuiltins(nil), WithXAIBuiltins(nil)} {
+		for _, model := range models {
+			if strings.EqualFold(strings.TrimSpace(modelID), model.ID) {
+				return cloneModelInfo(model)
+			}
+		}
 	}
 
 	return nil

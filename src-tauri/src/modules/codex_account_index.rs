@@ -949,7 +949,7 @@ fn load_account_with_summary(
                 move || {
                     crate::modules::secure_account_storage::serialize_account_file(
                         "codex",
-                        &account_for_rewrite,
+                        &crate::modules::codex_account_proxy::storage_value(&account_for_rewrite)?,
                     )
                 },
             );
@@ -978,7 +978,7 @@ fn load_account_with_summary(
         move || {
             crate::modules::secure_account_storage::serialize_account_file(
                 "codex",
-                &account_for_rewrite,
+                &crate::modules::codex_account_proxy::storage_value(&account_for_rewrite)?,
             )
         },
     );
@@ -992,6 +992,24 @@ pub fn save_account(account: &CodexAccount) -> Result<(), String> {
         .lock()
         .map_err(|_| "Codex 账号写入锁已损坏".to_string())?;
     save_account_with_tombstone_guard(account)
+}
+
+/// Quota, subscription and credential maintenance own their refreshed fields, not the
+/// user's proxy choice. Merge the latest durable choice in the same transaction
+/// as the write, and return that exact snapshot to account-returning callers.
+pub(crate) fn save_account_preserving_egress_proxy(
+    account: &CodexAccount,
+) -> Result<CodexAccount, String> {
+    let _guard = CODEX_ACCOUNT_MUTATION_LOCK
+        .lock()
+        .map_err(|_| "Codex 账号写入锁已损坏".to_string())?;
+    let current = load_account_with_summary(&account.id, None)?
+        .ok_or_else(|| format!("账号已删除或无法读取，拒绝后台写回: account_id={}", account.id))?;
+    let mut merged = account.clone();
+    merged.egress_proxy_url = current.egress_proxy_url;
+    merged.egress_proxy_disabled = current.egress_proxy_disabled;
+    save_account_with_tombstone_guard(&merged)?;
+    Ok(merged)
 }
 
 fn save_account_with_tombstone_guard(account: &CodexAccount) -> Result<(), String> {
@@ -1021,12 +1039,14 @@ fn save_account_with_tombstone_guard(account: &CodexAccount) -> Result<(), Strin
             credential_hash,
         )?;
     }
+    crate::modules::codex_local_access::notify_gateway_key_account_restored(account);
     Ok(())
 }
 
 fn save_account_unchecked(account: &CodexAccount) -> Result<(), String> {
     let path = get_accounts_dir().join(format!("{}.json", &account.id));
-    let content = crate::modules::secure_account_storage::serialize_account_file("codex", account)?;
+    let content = crate::modules::secure_account_storage::serialize_account_file("codex",
+        &crate::modules::codex_account_proxy::storage_value(account)?)?;
     write_string_atomic(&path, &content).map_err(|e| format!("写入账号详情失败: {}", e))?;
     Ok(())
 }
@@ -1050,6 +1070,7 @@ fn save_account_from_user_action(account: &mut CodexAccount) -> Result<(), Strin
             account_credential_hash(account),
         )?;
     }
+    crate::modules::codex_local_access::notify_gateway_key_account_restored(account);
     Ok(())
 }
 
@@ -1067,6 +1088,8 @@ fn delete_account_file_unlocked(account_id: &str) -> Result<(), String> {
         crate::modules::atomic_write::remove_file_locked(&path)
             .map_err(|e| format!("删除文件失败: {}", e))?;
     }
+    crate::modules::codex_proxy_runtime::release_deleted_account(account_id);
+    crate::modules::codex_proxy_runtime::release_deleted_account(&crate::modules::codex_client_proxy::route_id(account_id));
     Ok(())
 }
 
@@ -1289,4 +1312,14 @@ pub fn list_accounts_checked() -> Result<Vec<CodexAccount>, String> {
     }
 
     Ok(accounts)
+}
+
+/// Destructive proxy-source deletion must see every indexed account before unbinding.
+pub fn list_accounts_for_proxy_removal() -> Result<Vec<CodexAccount>, String> {
+    let index = load_account_index_checked().map_err(|_| "CATALOG_ACCOUNT_READ")?;
+    index.accounts.iter().map(|summary| {
+        load_account_with_summary(&summary.id, Some(summary))
+            .map_err(|_| "CATALOG_ACCOUNT_READ")?
+            .ok_or_else(|| "CATALOG_ACCOUNT_READ".to_string())
+    }).collect()
 }

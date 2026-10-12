@@ -1,7 +1,9 @@
+import { installTauriEventCleanupGuard } from "./utils/tauriEventListener";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { initI18n } from "./i18n";
 import { AppRuntimeGuard } from "./components/AppRuntimeGuard";
+import { CodexProxyEngineProvider } from "./components/codex/CodexProxyEngineProvider";
 import {
   captureError,
   initErrorReporter,
@@ -26,10 +28,11 @@ void initI18n().then(async () => {
   }
 
   recordFrontendStage("react_mount_start");
+  installTauriEventCleanupGuard();
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <AppRuntimeGuard>
-        <App />
+        <CodexProxyEngineProvider><App /></CodexProxyEngineProvider>
       </AppRuntimeGuard>
     </React.StrictMode>,
   );

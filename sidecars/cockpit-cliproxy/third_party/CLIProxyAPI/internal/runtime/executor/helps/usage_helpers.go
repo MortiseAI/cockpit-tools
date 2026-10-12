@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"reflect"
 	"strings"
 	"sync"
@@ -46,8 +47,11 @@ type UsageReporter struct {
 	firstPacketDuration time.Duration
 	firstPacketSet      bool
 	ttftStart           time.Time
+	ttftFirstStart      time.Time
 	ttftSet             bool
 	once                sync.Once
+	proxyRouteMu        sync.RWMutex
+	proxyRouteGetter    func() *usage.ProxyRoute
 }
 
 type usageExecutor interface {
@@ -87,6 +91,9 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 		reporter.authID = auth.ID
 		reporter.authIndex = auth.EnsureIndex()
 		reporter.accessTokenHash = authAccessTokenSHA256(auth)
+	}
+	if observer := cliproxyexecutor.DiagnosticsObserver(ctx); observer != nil {
+		observer.ExecutionStarted(ctx, cliproxyexecutor.DiagnosticExecution{Provider: provider, Model: model, AuthID: reporter.authID, StartedAt: reporter.requestedAt})
 	}
 	return reporter
 }
@@ -223,8 +230,32 @@ func (r *UsageReporter) StartResponseTTFT() {
 	r.ttftMu.Lock()
 	if !r.ttftSet && r.ttftStart.IsZero() {
 		r.ttftStart = time.Now()
+		if r.ttftFirstStart.IsZero() {
+			r.ttftFirstStart = r.ttftStart
+		}
 	}
 	r.ttftMu.Unlock()
+}
+
+// ResumeResponseTTFTAfterRetry excludes a discarded rejection body from the
+// effective TTFT while retaining both the original start and first-packet fallback.
+// Call only when a retry has been selected, never for ordinary error responses.
+func (r *UsageReporter) ResumeResponseTTFTAfterRetry() {
+	if r == nil {
+		return
+	}
+	r.ttftMu.Lock()
+	defer r.ttftMu.Unlock()
+	if !r.ttftSet || r.ttftFirstStart.IsZero() {
+		return
+	}
+	if !r.firstPacketSet {
+		r.firstPacketDuration = r.ttft
+		r.firstPacketSet = true
+	}
+	r.ttft = 0
+	r.ttftSet = false
+	r.ttftStart = r.ttftFirstStart
 }
 
 func (r *UsageReporter) IsTTFTSet() bool {
@@ -400,6 +431,7 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 		return usage.Record{Model: model, Detail: detail, Failed: failed, Fail: fail, Generate: usage.GenerateFlag(true)}
 	}
 	return usage.Record{
+		ProxyRoute:          r.proxyRouteSnapshot(),
 		Provider:            r.provider,
 		ExecutorType:        r.executorType,
 		Model:               model,
@@ -501,6 +533,11 @@ type usageTTFTRoundTripper struct {
 func (t usageTTFTRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	cliproxyexecutor.MarkUpstreamAttempt(req.Context())
 	t.reporter.StartResponseTTFT()
+	t.reporter.SetProxyRouteGetter(nil)
+	trace := &httptrace.ClientTrace{GetConn: func(string) { t.reporter.SetProxyRouteGetter(nil) }, GotConn: func(info httptrace.GotConnInfo) {
+		t.reporter.SetProxyRouteGetter(ObserveRequestProxyRoute(effectiveHTTPProxyURL(t.base, req, info.Conn), info.Conn))
+	}}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 	resp, errRoundTrip := t.base.RoundTrip(req)
 	if errRoundTrip != nil {
 		return resp, errRoundTrip
@@ -509,6 +546,9 @@ func (t usageTTFTRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 		t.reporter.ObserveResponsePacketOnly(resp)
 	} else {
 		t.reporter.ObserveResponse(resp)
+	}
+	if resp != nil && resp.Body != nil && cliproxyexecutor.DiagnosticsObserver(req.Context()) != nil {
+		resp.Body = &usageTTFTReadCloser{ReadCloser: resp.Body, mark: func() { cliproxyexecutor.ObserveUpstreamChunk(req.Context()) }}
 	}
 	return resp, nil
 }
